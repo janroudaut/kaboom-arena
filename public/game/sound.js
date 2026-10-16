@@ -13,6 +13,7 @@ export const SFX_INFO = {
   hillpt: [4, 200], hillmove: [5, 0], pass: [6, 150], potbeep: [5, 0], wave: [7, 0],
 };
 export const VOICES = 16;
+const JINGLES = new Set(["start", "win", "lose", "draw", "matchwin", "matchlose"]);
 
 // Voice limiter over a caller-owned list of { end, prio } (expired entries are pruned in place).
 // Returns -1 = add, i >= 0 = replace entry i (lowest priority, oldest), -2 = drop the new sound.
@@ -246,6 +247,7 @@ export function createSound({ settings, makeEngine, speech = null, now = () => p
   }
 
   const emit = (name, x, v) => {
+    if (JINGLES.has(name) && !plan()) return;
     const g = SFX_INFO[name]?.[1] ?? 0, t = now();
     if (g && t - (stamp.get(name) ?? -1e9) < g) return;
     stamp.set(name, t);

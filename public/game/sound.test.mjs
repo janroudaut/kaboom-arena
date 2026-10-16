@@ -238,7 +238,7 @@ test("controller: nothing is created before a gesture, with sound off, or while 
 });
 
 test("controller: music follows scene, pause/hidden suspend, mute stops everything", () => {
-  const r = rig();
+  const r = rig({ music: "auto" });
   r.snd.gesture();
   r.snd.setScene({ kind: "menu" });
   assert.deepEqual(r.calls.filter((c) => c[0] === "start"), [["start", "menu"]]);
@@ -278,7 +278,7 @@ test("controller: Silence music keeps effects; menu clicks wake then re-suspend 
 });
 
 test("controller: gameplay events play, gaps are respected, match fanfare fires once", () => {
-  const r = rig();
+  const r = rig({ music: "auto" });
   r.snd.gesture();
   r.snd.setScene({ kind: "game", theme: "grass" });
   const s = newGame(2, 1);
@@ -307,4 +307,12 @@ test("controller: voice reads banners once, lower-cased, rate limited, only when
   quiet.snd.gesture();
   quiet.snd.feed(g);
   assert.deepEqual(quiet.said.filter((x) => x !== "cancel"), []);
+});
+
+test("controller: with music on Silence the jingles stay quiet but gameplay sounds play", () => {
+  const r = rig({ music: "silence" });
+  r.snd.gesture();
+  r.snd.setScene({ kind: "game", theme: "grass" });
+  r.snd.feed({ s: newGame(2, 1), scores: [0, 0], win: 2 });
+  assert.equal(r.calls.some((c) => c[0] === "play" && c[1] === "start"), false);
 });

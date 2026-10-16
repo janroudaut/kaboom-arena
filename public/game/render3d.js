@@ -10,6 +10,7 @@ import { W, H, T, SUDDEN, FLAME, FUSE, END_DELAY, ICE, CONV, SPIKE, TELE, SPIKE_
 import { ICONS } from "./render.js";
 import { esc } from "./lobby.js";
 import { createObserver } from "./fx.js";
+import { loadPanel, savePanel, sanitizePanel, PANEL_DEFAULTS, bloomStrength, fpsLine, statLine, toastText, halluVariant, createCadence, createGovernor, flareDots, FLARE_N, DISCLAIMER, CATCHPHRASE } from "./dlss6.js";
 import { placeBubble } from "./director.js";
 import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText } from "./look.js";
 
@@ -19,23 +20,23 @@ const FACE_ANGLE = [Math.PI, Math.PI / 2, 0, -Math.PI / 2];
 const FX = { death: 0.8, drop: 0.35, crumble: 0.45, flourish: 1.4, debris: MOBILE ? 28 : 56, pieces: MOBILE ? 3 : 4, fuseRate: MOBILE ? 0.5 : 1 };
 // DLSS parody gags: [min, max] seconds between occurrences (game time, so pauses do not count).
 const PUNCH_S = 0.9, AI_TAGS = ["AI-enhanced", "+4 generated frames", "neural upscaled*"];
-const GAG = { toast: [20, 40], toastShow: 3.5, halluc: [30, 60], halluShow: 0.6, shimmer: 1.2, checklist: 6, tickEvery: 0.45 };
-const FAKE_FEATURES = ["Ray Reconstruction", "Frame Gen ×4", "Neural Faces™", "Super Resolution"];
-const TOASTS = ["Neural frame ×4 generated", "Re-imagined {n} bricks", "Enhanced {p}'s cheekbones", "Upscaled {p}'s confidence", "Hallucinated {n} extra frames", "Denoised the vibes", "Added 2 fingers to {p} for realism", "Generative fuse optimisation active", "Smoothed {p}'s expression"];
+const GAG = { toast: [20, 40], toastShow: 3.5, halluc: [30, 60], halluShow: 0.6, shimmer: 1.2, reshimmer: [50, 90], gap: 6, checklist: 6, tickEvery: 0.45 };
+const FAKE_FEATURES = ["Ray Reconstruction", "Frame Gen ×6", "Neural Faces™", "Super Resolution"];
+const PIN = /[?&]dlss6=max\b/.test(location.search);
+const FLARE_LIFE = 0.55, FLARE_COLS = [0xffd9a0, 0x6ad0ff, 0xff6ae0, 0xa0ffb0, 0xffa060];
 const HOT = [1, 0.62, 0.2], GOLD = [1, 0.9, 0.35], SMOKE = [0.75, 0.75, 0.8];
 const WHITE = new THREE.Color(1, 1, 1);
 const pick = (a) => a[(Math.random() * a.length) | 0];
-const between = ([a, b]) => a + Math.random() * (b - a);
 
 const FINISH_SHADER = {
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, boost: { value: 0 }, resolution: { value: new THREE.Vector2(1, 1) } },
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, boost: { value: 0 }, chroma: { value: 1 }, resolution: { value: new THREE.Vector2(1, 1) } },
   vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float time; uniform float boost; uniform vec2 resolution; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float time; uniform float boost; uniform float chroma; uniform vec2 resolution; varying vec2 vUv;
     float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
       vec2 c = vUv - 0.5; float d = dot(c, c);
-      vec2 off = c * d * 0.02;
+      vec2 off = c * d * 0.02 * chroma;
       vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
       vec2 px = 1.0 / resolution;
       vec3 blur = (texture2D(tDiffuse, vUv + vec2(px.x, 0.0)).rgb + texture2D(tDiffuse, vUv - vec2(px.x, 0.0)).rgb
@@ -47,6 +48,26 @@ const FINISH_SHADER = {
       col *= 1.0 - d * 0.9;
       col += (rnd(vUv * resolution + time) - 0.5) * 0.03;
       gl_FragColor = vec4(col, 1.0);
+    }`,
+};
+
+const SHAFT_SHADER = {
+  uniforms: { tDiffuse: { value: null }, light: { value: new THREE.Vector2(0.2, 0.9) }, strength: { value: 0.4 } },
+  vertexShader: FINISH_SHADER.vertexShader,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform vec2 light; uniform float strength; varying vec2 vUv;
+    void main(){
+      vec4 base = texture2D(tDiffuse, vUv);
+      vec2 dir = light - vUv; float len = max(length(dir), 1e-4);
+      vec2 stp = dir / len * min(len * 0.85, 0.2) / 16.0;
+      vec2 uv = vUv; vec3 acc = vec3(0.0); float w = 1.0;
+      for (int i = 0; i < 16; i++) {
+        uv += stp;
+        vec3 c = texture2D(tDiffuse, uv).rgb;
+        acc += min(c, vec3(3.0)) * smoothstep(0.9, 2.2, max(c.r, max(c.g, c.b))) * w;
+        w *= 0.88;
+      }
+      gl_FragColor = vec4(base.rgb + acc * (strength / 16.0), base.a);
     }`,
 };
 
@@ -264,7 +285,7 @@ function flameRuns(flames) {
 // The re-imagined block must never hide a bomb, flame or player standing next to it.
 const crowded = (s, x, y) => [...s.bombs, ...s.flames, ...s.players.filter((p) => p.alive).map((p) => ({ x: Math.floor(p.x / T), y: Math.floor(p.y / T) }))].some((o) => Math.abs(o.x - x) <= 1 && Math.abs(o.y - y) <= 1);
 
-export function createRenderer3D(canvas, hudParent) {
+export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE, powerPreference: "high-performance" });
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = MOBILE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
@@ -334,6 +355,15 @@ export function createRenderer3D(canvas, hudParent) {
   });
   fingers.visible = false;
   scene.add(fingers);
+  const studs = new THREE.Group();
+  const studGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.12, 10);
+  for (let i = 0; i < 9; i++) {
+    const m = new THREE.Mesh(studGeo, fingerMat);
+    m.position.set((i % 3) * 0.28 - 0.28, 0, ((i / 3) | 0) * 0.28 - 0.28);
+    studs.add(m);
+  }
+  studs.visible = false;
+  scene.add(studs);
 
 
   function applyTheme(th) {
@@ -342,6 +372,7 @@ export function createRenderer3D(canvas, hudParent) {
     const d = th.d3;
     ground.material.map.dispose();
     ground.material.map = groundTexture(d);
+    if (hv) hv.under.material.map = ground.material.map;
     softMesh.material.map.dispose();
     softMesh.material.map = brickTexture(d.soft);
     hardMesh.material.color.setHex(d.hard);
@@ -640,9 +671,10 @@ export function createRenderer3D(canvas, hudParent) {
 
   const hud = document.createElement("div");
   hud.id = "hud3";
-  hud.innerHTML = '<div class="h3-scores"></div><div class="h3-info"></div><div class="h3-frenzy"></div><button class="h3-badge"></button><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div><div class="h3-call"></div><div class="h3-bub"></div><div class="h3-bub"></div>';
+  hud.innerHTML = '<div class="h3-scores"></div><div class="h3-info"></div><div class="h3-frenzy"></div><div class="h3-left"><button class="h3-badge"></button><button class="h3-gear" hidden aria-label="DLSS 6 control panel (G)" title="DLSS 6 control panel (G)">⚙ RTX settings</button></div><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div><div class="h3-call"></div><div class="h3-bub"></div><div class="h3-bub"></div>';
   hudParent.appendChild(hud);
-  const [elScores, elInfo, elFrenzy, elBadge, elToast, elBanner, elSpec, elCall, ...elBub] = hud.children;
+  const [elScores, elInfo, elFrenzy, elLeft, elToast, elBanner, elSpec, elCall, ...elBub] = hud.children;
+  const [elBadge, elGear] = elLeft.children;
   const [elBannerText, elStat] = elBanner.children;
 
   let dlss = true, scale = MOBILE ? 0.7 : 1, w = 1, h = 1, shake = 0, still = false;
@@ -651,9 +683,15 @@ export function createRenderer3D(canvas, hudParent) {
   let frames = 0, acc = 0, fps = 60, lastNow = performance.now(), lastScale = lastNow;
   const seen = new Set();
   let lastHud = "", lastBanner = "", statN = 0, frenzyCls = "";
-  let clk = 0, dlssT = 0, nextToast = between(GAG.toast) / 2, toastHide = 0, nextHallu = between(GAG.halluc) / 2, halluEnd = 0, halluStart = 0, halluIdx = 0, halluCell = -1;
+  let clk = 0, dlssT = 0, toastHide = 0, halluEnd = 0, halluStart = 0, halluIdx = 0, halluCell = -1, halluKind = "fingers", shimT0 = 0, statK = 0;
+  const store = () => { try { return localStorage; } catch { return null; } };
+  let opt = loadPanel(store()), hv = null, flareAt = -1, flareNext = 0;
+  const cadence = () => createCadence({ toast: GAG.toast, halluc: GAG.halluc, shimmer: GAG.reshimmer }, GAG.gap);
+  let cad = cadence();
+  const gov = createGovernor();
+  const flareBuf = new Float32Array(FLARE_N * 4);
   let curS = null, colDirty = false, shownCall = null, pun = null;
-  const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3(), spot = {};
+  const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3(), spot = {}, aoM = new THREE.Matrix4();
 
   function resize() {
     w = innerWidth; h = innerHeight;
@@ -788,21 +826,168 @@ export function createRenderer3D(canvas, hudParent) {
     debris.visible = deb.live > 0;
   }
 
+  function applyFaces() {
+    const f = dlss && opt.faces;
+    for (const p of players) {
+      if (!p) continue;
+      p.userData.neural.visible = f;
+      p.userData.head.scale.setScalar(f ? 1.1 : 1);
+      p.userData.eyes.forEach((e) => e.scale.setScalar(f ? 1.5 : 1));
+      p.userData.skin.roughness = f ? 0.12 : 0.5;
+      p.userData.skin.clearcoat = f ? 1 : 0;
+    }
+  }
+
   function setDlss(on) {
-    if (on && !dlss) dlssT = 0;
+    if (on && !dlss) { dlssT = 0; shimT0 = 0; cad = cadence(); gov.level = 3; }
     dlss = on;
     renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NeutralToneMapping;
     renderer.toneMappingExposure = on ? 1.3 : 1.15;
     for (const l of rimLights) l.visible = on;
-    for (const p of players) {
-      if (!p) continue;
-      p.userData.neural.visible = on;
-      p.userData.head.scale.setScalar(on ? 1.1 : 1);
-      p.userData.eyes.forEach((e) => e.scale.setScalar(on ? 1.5 : 1));
-      p.userData.skin.roughness = on ? 0.12 : 0.5;
-      p.userData.skin.clearcoat = on ? 1 : 0;
-    }
+    applyFaces();
     itemMats.forEach((m) => m.color.setScalar(on ? 1.8 : 1));
+    elGear.hidden = !on;
+    syncHeavy();
+    lastHud = "";
+  }
+
+  // Desktop-only extras (floor reflections, contact shadows, light shafts, lens flares): built on entering DLSS, fully disposed on leaving.
+  function syncHeavy() {
+    const want = dlss && !MOBILE && !still;
+    if (want && !hv) buildHeavy();
+    else if (!want && hv) disposeHeavy();
+    applyQuality();
+  }
+
+  function buildHeavy() {
+    const mirror = new THREE.Group();
+    mirror.scale.y = -1;
+    const mh = new THREE.InstancedMesh(hardMesh.geometry, hardMesh.material, W * H), ms = new THREE.InstancedMesh(softMesh.geometry, softMesh.material, W * H);
+    mh.instanceMatrix = hardMesh.instanceMatrix;
+    ms.instanceMatrix = softMesh.instanceMatrix;
+    mh.frustumCulled = ms.frustumCulled = false;
+    mirror.add(mh, ms);
+    const under = new THREE.Mesh(new THREE.PlaneGeometry(W, H).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: ground.material.map, color: 0x303030 }));
+    under.position.set(W / 2, -1.3, H / 2);
+    const aoTex = canvasTexture(64, 64, (c) => {
+      const g = c.createRadialGradient(32, 32, 4, 32, 32, 32);
+      g.addColorStop(0, "rgba(0,0,0,0.9)"); g.addColorStop(1, "rgba(0,0,0,0)");
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+    });
+    const ao = new THREE.InstancedMesh(new THREE.PlaneGeometry(1.9, 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, opacity: 0.6 }), W * H);
+    ao.frustumCulled = false;
+    ao.count = 0;
+    const shafts = new ShaderPass(SHAFT_SHADER);
+    composer.insertPass(shafts, 2);
+    const dotTex = canvasTexture(64, 64, (c) => {
+      const g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(0.35, "rgba(255,255,255,0.35)"); g.addColorStop(1, "rgba(255,255,255,0)");
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+    });
+    const streakTex = canvasTexture(128, 16, (c) => {
+      const g = c.createLinearGradient(0, 0, 128, 0);
+      g.addColorStop(0, "rgba(120,200,255,0)"); g.addColorStop(0.5, "rgba(190,230,255,1)"); g.addColorStop(1, "rgba(120,200,255,0)");
+      c.fillStyle = g; c.fillRect(0, 7, 128, 2);
+    });
+    const flares = Array.from({ length: 2 }, () => ({ t: -1, sprites: Array.from({ length: FLARE_N + 1 }, (_, i) => {
+      const m = new THREE.SpriteMaterial({ map: i < FLARE_N ? dotTex : streakTex, color: i < FLARE_N ? FLARE_COLS[i] : 0xffffff, blending: THREE.AdditiveBlending, transparent: true, depthTest: false, depthWrite: false, opacity: 0 });
+      const sp = new THREE.Sprite(m);
+      sp.renderOrder = 10;
+      sp.visible = false;
+      camera.add(sp);
+      return sp;
+    }) }));
+    scene.add(mirror, under, ao, camera);
+    hv = { mirror, mh, ms, under, ao, shafts, aoTex, dotTex, streakTex, flares, fnext: 0, rt: false, rr: false, fl: false };
+    renderer.compile(scene, camera);
+  }
+
+  function disposeHeavy() {
+    const { mirror, under, ao, shafts, aoTex, dotTex, streakTex, flares } = hv;
+    scene.remove(mirror, under, ao, camera);
+    composer.removePass(shafts);
+    shafts.dispose();
+    under.geometry.dispose(); under.material.dispose();
+    ao.geometry.dispose(); ao.material.dispose(); ao.dispose();
+    for (const f of flares) for (const sp of f.sprites) { camera.remove(sp); sp.material.dispose(); }
+    aoTex.dispose(); dotTex.dispose(); streakTex.dispose();
+    setGroundGloss(false);
+    hv = null;
+  }
+
+  function setGroundGloss(on) {
+    const m = ground.material;
+    if (m.transparent === on) return;
+    m.transparent = on;
+    ground.renderOrder = on ? -1 : 0;
+    m.opacity = on ? 0.76 : 1;
+    m.needsUpdate = true;
+  }
+
+  function applyQuality() {
+    bloom.strength = bloomStrength(opt.bloom);
+    finish.uniforms.chroma.value = opt.chroma ? 1 : 0;
+    if (!hv) return;
+    const lv = PIN ? 3 : gov.level;
+    hv.rt = opt.rt && lv >= 2;
+    hv.rr = opt.rr && lv >= 3;
+    hv.fl = opt.flare && lv >= 1;
+    hv.mirror.visible = hv.under.visible = hv.ao.visible = hv.rt;
+    hv.shafts.enabled = hv.rr;
+    setGroundGloss(hv.rt);
+    if (!hv.fl) for (const f of hv.flares) { f.t = -1; for (const sp of f.sprites) sp.visible = false; }
+  }
+
+  function updateHeavy(s, dt, fresh) {
+    if (hv.rr) {
+      tmpV.copy(sun.position).project(camera);
+      hv.shafts.uniforms.light.value.set(tmpV.x * 0.5 + 0.5, tmpV.y * 0.5 + 0.5);
+    }
+    bloom.strength = bloomStrength(opt.bloom) * (hv.fl ? 1 + 0.6 * Math.min(1, s.flames.length / 12) : 1);
+    if (!hv.fl) return;
+    const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    if (fresh.length && clk > flareNext) {
+      const f = fresh[0], fl = hv.flares[hv.fnext++ % 2];
+      tmpV.set(f.x + 0.5, 0.5, f.y + 0.5).project(camera);
+      fl.t = 0; fl.x = tmpV.x; fl.y = tmpV.y;
+      flareNext = clk + 0.3;
+    }
+    for (const fl of hv.flares) {
+      if (fl.t < 0) continue;
+      fl.t += dt;
+      const k = fl.t / FLARE_LIFE, off = k >= 1;
+      if (!off) flareDots(flareBuf, fl.x, fl.y, k);
+      fl.sprites.forEach((sp, i) => {
+        sp.visible = !off;
+        if (off) return;
+        if (i === FLARE_N) {
+          sp.position.set(fl.x * halfH * camera.aspect, fl.y * halfH, -1);
+          sp.scale.set(halfH * 3 * (0.4 + k), halfH * 0.5, 1);
+          sp.material.opacity = (1 - k) * (1 - k);
+          return;
+        }
+        sp.position.set(flareBuf[i * 4] * halfH * camera.aspect, flareBuf[i * 4 + 1] * halfH, -1);
+        sp.scale.setScalar(flareBuf[i * 4 + 2] * halfH);
+        sp.material.opacity = flareBuf[i * 4 + 3];
+      });
+      if (off) fl.t = -1;
+    }
+  }
+
+  function setOpt(k, v) {
+    opt = sanitizePanel({ ...opt, [k]: v });
+    savePanel(store(), opt);
+    applyFaces();
+    applyQuality();
+    lastHud = "";
+  }
+
+  function resetOpt() {
+    opt = { ...PANEL_DEFAULTS };
+    savePanel(store(), opt);
+    applyFaces();
+    applyQuality();
+    lastHud = "";
   }
 
   function updateHud(g, now) {
@@ -821,14 +1006,14 @@ export function createRenderer3D(canvas, hudParent) {
     const mt = modeText(s), et = eventText(s);
     const info = (mt ? `<b class="h3-mode">${esc(mt)}</b>` : "") + (et ? `<b class="h3-event" style="color:${EVENT_INFO[s.event.type].col}">${esc(et)}</b>` : "");
     const extra = sudden + (cur ? `<b class="h3-curse">${cur}</b>` : "");
-    const live = `${Math.round(fps * 4)} FPS · AI res ${Math.round(scale * 100)}%`;
+    const live = `${opt.fgen ? fpsLine(fps) : `${Math.round(fps)} FPS`} · AI res ${Math.round(scale * 100)}%`;
     const ticks = Math.floor(dlssT / GAG.tickEvery);
     const badge = dlss
-      ? `<b>DLSS 5 ON</b><br>${!still && dlssT < GAG.checklist ? FAKE_FEATURES.map((f, i) => `${i < ticks ? "✔" : "…"} ${f}`).join("<br>") : "Neural Faces™ · Frame Gen ×4"}<br>${live}`
+      ? `<b>DLSS 6 ON</b><br>${!still && dlssT < GAG.checklist ? FAKE_FEATURES.map((f, i) => `${i < ticks ? "✔" : "…"} ${f}`).join("<br>") : `${opt.faces ? "Neural Faces™ · " : ""}Frame Gen ×${opt.fgen ? 6 : 1}`}<br>${live}`
       : `DLSS OFF · ${Math.round(fps)} FPS<br><small>click or press T to enable</small>`;
     const out = g.me >= 0 && !s.done && s.players[g.me]?.alive === false && !g.banner;
-    if (g.banner !== lastBanner) { lastBanner = g.banner; statN = 23 + ((Math.random() * 390) | 0); }
-    const stat = dlss && !g.retro && g.banner && (s.end >= 0 || s.done) ? `DLSS 5 improved your gameplay by ${statN}%` : "";
+    if (g.banner !== lastBanner) { lastBanner = g.banner; statN = 23 + ((Math.random() * 390) | 0); statK = (Math.random() * 3) | 0; }
+    const stat = dlss && !g.retro && g.banner && (s.end >= 0 || s.done) ? statLine(statN, statK) : "";
     const key = scores + extra + info + badge + g.banner + stat + out + !!g.retro;
     if (key === lastHud) return;
     lastHud = key;
@@ -836,6 +1021,7 @@ export function createRenderer3D(canvas, hudParent) {
     elInfo.innerHTML = info;
     elBadge.innerHTML = badge;
     elBadge.className = `h3-badge ${dlss ? "on" : ""}`;
+    elBadge.title = dlss ? `${CATCHPHRASE} ${DISCLAIMER}` : "";
     elBannerText.textContent = g.banner || "";
     elStat.textContent = stat;
     elBanner.className = g.retro ? "h3-banner retro" : "h3-banner";
@@ -886,9 +1072,12 @@ export function createRenderer3D(canvas, hudParent) {
     clk += dt;
     if (dlss) dlssT += dt;
     if (acc >= 0.5) {
-      fps = frames / acc; frames = 0; acc = 0;
-      if (now - lastScale > 1000) {
-        const next = fps < 45 ? Math.max(MIN_SCALE, scale - 0.15) : fps > 57 && scale < 1 && now - lastScale > 4000 ? Math.min(1, scale + 0.1) : scale;
+      fps = frames / acc;
+      const quality = hv && !PIN ? gov.update(fps, acc, scale >= 1) : null;
+      if (quality) { applyQuality(); lastScale = now; }
+      frames = 0; acc = 0;
+      if (now - lastScale > 1000 && !PIN) {
+        const next = fps < 45 && !(hv && gov.level > 0) ? Math.max(MIN_SCALE, scale - 0.15) : fps > 57 && scale < 1 && now - lastScale > 4000 ? Math.min(1, scale + 0.1) : scale;
         if (next !== scale) { scale = next; resize(); lastScale = now; }
       }
     }
@@ -903,32 +1092,38 @@ export function createRenderer3D(canvas, hudParent) {
     });
     observe(s, onEvent);
 
-    const gags = dlss && !still;
+    const gags = dlss && !still && opt.fgen;
     let halluW = 0;
     halluCell = -1;
     if (gags) {
       if (halluEnd) {
-        if (clk > halluEnd) { halluEnd = 0; nextHallu = clk + between(GAG.halluc); }
+        if (clk > halluEnd) halluEnd = 0;
         else if (s.grid[halluIdx] === 2) { halluCell = halluIdx; halluW = Math.sin((Math.PI * (clk - halluStart)) / GAG.halluShow); }
-      } else if (clk > nextHallu) {
+      } else if (cad.due("halluc", dlssT)) {
         const from = (Math.random() * W * H) | 0;
         for (let k = 0; k < W * H && !halluEnd; k++) {
           const i = (from + k) % (W * H);
-          if (s.grid[i] === 2 && !crowded(s, i % W, (i / W) | 0)) { halluIdx = i; halluStart = clk; halluEnd = clk + GAG.halluShow; }
+          if (s.grid[i] === 2 && !crowded(s, i % W, (i / W) | 0)) { halluIdx = i; halluStart = clk; halluEnd = clk + GAG.halluShow; halluKind = halluVariant(Math.random); }
         }
-        if (!halluEnd) nextHallu = clk + 10;
+        if (!halluEnd) cad.defer("halluc", dlssT, 10);
       }
-      if (clk > nextToast) {
+      if (cad.due("toast", dlssT)) {
         const name = g.names?.[(Math.random() * s.players.length) | 0] || "Player";
-        elToast.textContent = pick(TOASTS).replace("{p}", name).replace("{n}", 3 + ((Math.random() * 17) | 0));
+        elToast.textContent = toastText(Math.random, name);
         elToast.className = "h3-toast on";
         toastHide = clk + GAG.toastShow;
-        nextToast = clk + between(GAG.toast);
       }
+      if (cad.due("shimmer", dlssT)) shimT0 = dlssT;
     } else halluEnd = 0;
     if (toastHide && (!gags || clk > toastHide)) { toastHide = 0; elToast.className = "h3-toast"; }
-    fingers.visible = halluCell >= 0;
-    if (halluCell >= 0) {
+    fingers.visible = halluCell >= 0 && halluKind === "fingers";
+    studs.visible = halluCell >= 0 && halluKind === "studs";
+    if (studs.visible) {
+      studs.position.set((halluCell % W) + 0.5, 0.94 * (1 + 0.5 * halluW) + 0.06 * halluW, Math.floor(halluCell / W) + 0.5);
+      studs.rotation.y = Math.sin(clk * 30) * 0.5 * halluW;
+      studs.scale.setScalar(halluW);
+    }
+    if (fingers.visible) {
       fingers.position.set((halluCell % W) + 0.5, 0.94 * (1 + 0.5 * halluW), Math.floor(halluCell / W) + 0.5);
       fingerPivots.forEach((f, i) => {
         const a = (i * Math.PI) / 3, wig = Math.sin(clk * 40 + i * 2) * 0.2;
@@ -939,6 +1134,7 @@ export function createRenderer3D(canvas, hudParent) {
 
     hardMesh.count = softMesh.count = 0;
     let nh = 0, ns = 0;
+    const ao = hv?.rt ? hv.ao : null;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const t = s.grid[y * W + x];
@@ -951,10 +1147,15 @@ export function createRenderer3D(canvas, hudParent) {
         if (hal) { dummy.scale.setScalar(1); dummy.rotation.y = 0; }
         if (t === 1) hardMesh.setMatrixAt(nh++, dummy.matrix);
         else softMesh.setMatrixAt(ns++, dummy.matrix);
+        if (ao) ao.setMatrixAt(nh + ns - 1, aoM.makeTranslation(x + 0.5, 0.02, y + 0.5));
       }
     }
     hardMesh.count = nh; softMesh.count = ns;
     hardMesh.instanceMatrix.needsUpdate = softMesh.instanceMatrix.needsUpdate = true;
+    if (hv) {
+      hv.mh.count = nh; hv.ms.count = ns;
+      if (ao) { ao.count = nh + ns; ao.instanceMatrix.needsUpdate = true; }
+    }
 
     const winT = s.end >= 0 ? (END_DELAY - s.end) / 60 : -1;
     s.players.forEach((p, i) => {
@@ -1001,7 +1202,7 @@ export function createRenderer3D(canvas, hudParent) {
       u.lean += ((moving && !still ? 0.2 : 0) - u.lean) * 0.25;
       u.body.rotation.x = u.lean;
       u.ant.rotation.z = still ? 0 : moving ? Math.sin(p.walk * 0.45 + 1) * 0.35 : Math.sin(clk * 2 + i) * 0.05;
-      if (dlss) {
+      if (dlss && opt.faces) {
         u.head.scale.setScalar(1.1 * (1 + (win ? 0.15 * Math.sin(winT * 20) * k : 0)));
         const tw = still ? 1 : 1 + (win ? 1.2 * Math.abs(Math.sin(winT * 14)) : 0.5 * Math.max(0, Math.sin(clk * 3 + i * 2)));
         for (const gl of u.glints) gl.scale.setScalar(tw);
@@ -1130,7 +1331,9 @@ export function createRenderer3D(canvas, hudParent) {
     } else camera.lookAt(center);
 
     finish.uniforms.time.value = now / 1000;
-    finish.uniforms.boost.value = gags && dlssT < GAG.shimmer ? Math.sin((Math.PI * dlssT) / GAG.shimmer) : 0;
+    const sh = dlssT - shimT0;
+    finish.uniforms.boost.value = gags && sh < GAG.shimmer ? Math.sin((Math.PI * sh) / GAG.shimmer) : 0;
+    if (hv) updateHeavy(s, dt, fresh);
     if (dlss) composer.render();
     else renderer.render(scene, camera);
     updateHud(g, now);
@@ -1139,8 +1342,13 @@ export function createRenderer3D(canvas, hudParent) {
   }
 
   elBadge.addEventListener("click", () => setDlss(!dlss));
-  addEventListener("keydown", (e) => { if (e.code === "KeyT" && e.target.tagName !== "INPUT" && hud.offsetParent) setDlss(!dlss); });
+  elGear.addEventListener("click", () => onPanel?.());
+  addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey || !hud.offsetParent) return;
+    if (e.code === "KeyT") setDlss(!dlss);
+    else if (e.code === "KeyG" && dlss && !e.repeat) onPanel?.();
+  });
   addEventListener("resize", resize);
   resize();
-  return { draw, resize, setDlss, hud, punch: (x, z) => { if (!still) pun = { x, z, t: 0 }; }, setStill: (on) => { still = on; shake = 0; if (on) { pun = null; freeFx(); } }, get dlss() { return dlss; } };
+  return { draw, resize, setDlss, hud, punch: (x, z) => { if (!still) pun = { x, z, t: 0 }; }, setStill: (on) => { still = on; shake = 0; if (on) { pun = null; freeFx(); } syncHeavy(); }, get dlss() { return dlss; }, get opt() { return opt; }, setOpt, resetOpt, info: renderer.info, mobile: MOBILE, get level() { return PIN ? 3 : gov.level; }, get heavy() { return !!hv; } };
 }

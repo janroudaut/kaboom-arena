@@ -97,7 +97,7 @@ async function applyGfx() {
   if ((gfx === "3d" || gfx === "dlss") && !r3) {
     try {
       const { createRenderer3D } = await import("./render3d.js");
-      r3 = createRenderer3D($("c3"), $("game"));
+      r3 = createRenderer3D($("c3"), $("game"), { onPanel: () => dlssUi().then((u) => u.toggle()) });
       r3.setStill(reduced(settings, motion.matches));
     } catch (err) {
       console.error(err);
@@ -112,12 +112,33 @@ async function applyGfx() {
   $("cf").hidden = !first;
   if (first) rf.resize();
   if (r3) { r3.hud.style.display = three ? "" : "none"; if (three) r3.setDlss(gfx === "dlss"); r3.resize(); }
+  if (gfx !== "dlss" || !three) { ui6?.destroy(); ui6 = null; }
+}
+
+let ui6 = null;
+async function dlssUi() {
+  if (!ui6) {
+    const { createDlssUi } = await import("./dlss6ui.js");
+    ui6 ??= createDlssUi({
+      api: r3,
+      reduced: () => reduced(settings, motion.matches),
+      layer: { open: () => nav.open("dlss"), close: () => nav.close("dlss") },
+      busy: () => mode === "host" || mode === "guest",
+      holdPause() {
+        if (paused || !$("game").classList.contains("on") || (mode !== "solo" && mode !== "local" && mode !== "story")) return null;
+        setPause(true);
+        return () => setPause(false);
+      },
+    });
+  }
+  return ui6;
 }
 
 for (const b of $("gfx").children) {
   b.onclick = () => {
+    const was = gfx;
     gfx = b.dataset.gfx;
-    applyGfx();
+    applyGfx().then(() => gfx === "dlss" && was !== "dlss" && is3() && dlssUi().then((u) => u.splash()));
   };
 }
 applyGfx();
@@ -129,6 +150,7 @@ addEventListener("popstate", () => nav.pop());
 
 function goBack(kind) {
   if (kind === "help") return help?.close();
+  if (kind === "dlss") return ui6?.close();
   const offline = mode === "solo" || mode === "local" || mode === "story";
   if (cur === "game" && !game?.rematch) {
     if (!offline) return nav.open("screen");

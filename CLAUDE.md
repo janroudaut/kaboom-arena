@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -42,6 +42,10 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - `fx.js` is a pure, allocation-free observer (tests in `fx.test.mjs`): it diffs successive states and reports `reset`, `die`, `bomb`, `wall` and `pick`, so solo, host and guest animate the same way. The renderer derives death spins and ghosts, bomb drop/squash, wall crumble, item pops and the round-end hop from those events, and resets on a new round.
 - Everything extra is gated by `setStill` (reduce motion) and uses no timers; DLSS parody gags (toasts, "hallucinated" brick, re-render shimmer, stat line) are tuned with the `GAG` constants and run on accumulated game time, so pauses and hidden tabs do not advance them. The `MOBILE` flag halves pools and sparks.
 - Per-player `castShadow` is a whitelist (torso, head, legs, shoes, hands): do not re-add a `traverse`.
+
+## DLSS 6 parody mode (`dlss6.js`, `dlss6ui.js`)
+- The internal gfx value stays `"dlss"`. `dlss6.js` is pure (panel fields, sanitize, fake numbers, toast texts, boot stages, `createCadence` gag spacing >= 6 s on game time, quality governor, flare math); `dlss6ui.js` is the DOM splash and fake control panel (injects and removes its own `<style>`). Panel options persist in localStorage `dlss6`, the splash flag in sessionStorage `dlss6splash` (shown once per session, only on a user click, never online). `G` or the gear button opens the panel (back layer `"dlss"`, Esc closes; offline it pauses), `T` toggles the mode. Disclaimer text: "Parody. Not affiliated with NVIDIA." (splash, panel footer, tooltips, help). No brand colours: violet and blue only.
+- `render3d.js`: desktop-only extras (mirrored block reflections, contact shadows, light shafts, lens flares) are built in `buildHeavy` via `syncHeavy` (desktop, DLSS, not reduced) and freed in `disposeHeavy`. Governor levels 3 = all, 2 = no shafts, 1 = no reflections/shadows, 0 = none; resolution only drops once effects are at 0. Traps: mirror meshes share `instanceMatrix` with the real blocks (never `dispose()` them); set the ground `renderOrder` only while it is transparent. Debug: `?dlss6=max` pins quality.
 
 ## Game feel (`director.js`)
 - `director.js` is a pure, allocation-free observer plus orchestrator in the style of `fx.js` (tests in `director.test.mjs`): a state-diff tracker (kills, own-bomb deaths, chains, close calls; flames carry no owner so each blast is recomputed from the previous grid), the announcer queue (max 2, cooldowns, priorities), hit-stop/slow-mo timing, story speech-bubble placement and the round/match recap data. Its state lives at module scope in `main.js` because guests rebuild `game` on every snapshot; renderers read `g.call`, `g.bub`, `g.clock` and `g.ts`.

@@ -75,23 +75,27 @@
   .h3-first { color: #fff9; font-size: 14px; }
   .h3-sudden { color: #ff5a4a; animation: blink .6s infinite alternate; }
   @keyframes blink { to { opacity: .3; } }
-  .h3-badge { position: absolute; top: 44px; left: 12px; min-width: 0; padding: 8px 12px; text-align: left; pointer-events: auto; background: #000a; border: 1px solid #fff3; font-size: 12px; font-weight: 500; }
-  .h3-badge.on { border-color: #76b900; color: #cfe8a0; box-shadow: 0 0 14px #76b90066; }
-  .h3-badge.on b { color: #9be000; }
-  @media (max-width: 600px) { .h3-scores { font-size: 12px; gap: 0 10px; } .h3-scores span { padding-left: 17px; } .h3-scores span::before { width: 12px; height: 12px; top: 2px; } .h3-info { top: 124px; font-size: 11px; } .h3-badge { top: 64px; } }
-  .h3-toast { position: absolute; top: 46px; right: 8px; max-width: 60vw; padding: 5px 10px; border-left: 3px solid #76b900; background: #000a; color: #cfe8a0; font-size: 12px; font-weight: 500; opacity: 0; transition: opacity .3s; }
+  .h3-left { position: absolute; top: 44px; left: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .h3-gear { min-width: 0; padding: 5px 10px; font-size: 10px; pointer-events: auto; background: #000a; border: 1px solid #b46cff88; color: #e5d2ff; }
+  .h3-gear[hidden] { display: none; }
+  .h3-badge { position: static; min-width: 0; padding: 8px 12px; text-align: left; pointer-events: auto; background: #000a; border: 1px solid #fff3; font-size: 12px; font-weight: 500; }
+  .h3-badge.on { border-color: #b46cff; color: #e5d2ff; box-shadow: 0 0 14px #b46cff66; }
+  .h3-badge.on b { color: #d6a8ff; }
+  @media (max-width: 600px) { .h3-scores { font-size: 12px; gap: 0 10px; } .h3-scores span { padding-left: 17px; } .h3-scores span::before { width: 12px; height: 12px; top: 2px; } .h3-info { top: 124px; font-size: 11px; } .h3-left { top: 64px; } }
+  .h3-toast { position: absolute; top: 46px; right: 8px; max-width: 60vw; padding: 5px 10px; border-left: 3px solid #b46cff; background: #000a; color: #e5d2ff; font-size: 12px; font-weight: 500; opacity: 0; transition: opacity .3s; }
   .h3-toast.on { opacity: 1; }
-  .h3-stat { display: block; margin-top: 4px; font-size: 14px; color: #9be000; }
+  .h3-stat { display: block; margin-top: 4px; font-size: 14px; color: #d6a8ff; }
   .h3-stat:empty { display: none; }
   .h3-spec { display: none; position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 8px; background: #000a; white-space: nowrap; }
   .h3-banner { position: absolute; left: 0; right: 0; top: 42%; text-align: center; font-size: 28px; padding: 14px; background: #000b; border-block: 2px solid #ffd23c; }
   #touch { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 3; }
   #touch > * { pointer-events: auto; }
-  #quit, #pauseBtn, #muteBtn { z-index: 4; }
+  #quit, #pauseBtn { z-index: 4; }
   #pauseBtn { position: absolute; top: 6px; right: 52px; min-width: 0; padding: 6px 12px; background: #0008; }
-  #muteBtn { position: absolute; top: 6px; right: 98px; min-width: 0; padding: 6px 12px; background: #0008; }
+  #muteBtn { position: fixed; z-index: 30; top: 6px; right: 8px; min-width: 0; padding: 6px 12px; background: #0008; }
+  body:has(#game.on) #muteBtn { right: 98px; }
   #muteBtn[aria-pressed="true"] { background: #b3261eee; }
-  #pauseBtn[hidden] ~ #muteBtn { right: 52px; }
+  body:has(#game.on):has(#pauseBtn[hidden]) #muteBtn { right: 52px; }
   #pause { position: absolute; inset: 0; z-index: 5; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0b0b12d9; }
   #pause.on { display: flex; }
   #pause h2 { margin: 0 0 6px; font-size: 2.2rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
@@ -137,7 +141,7 @@
   .seg button + button { border-left: 1px solid #fff2; }
   .seg button[aria-checked="true"] { background: var(--blue); color: #fff; box-shadow: inset 0 -3px #0004; font-weight: 800; }
   .seg button[aria-checked="true"]::before { content: "✓ "; }
-  .seg button[data-gfx="dlss"][aria-checked="true"] { background: linear-gradient(135deg, #76b900, #2f8f3a); }
+  .seg button[data-gfx="dlss"][aria-checked="true"] { background: linear-gradient(135deg, #b46cff, #3c5cff); }
   .seg button[data-gfx="fps"][aria-checked="true"] { background: linear-gradient(135deg, #ff8a1a, #b8321c); }
   .seg.wrap { gap: 1px; background: #fff2; }
   .seg.wrap button { background: #222233; border-left: 0; }
@@ -188,7 +192,7 @@
   .h3-banner.retro { font: 20px/1.6 "Press Start 2P", monospace; }
   .h3-call { display: none; position: absolute; left: 0; right: 0; top: 22%; text-align: center; font: italic 900 clamp(34px, 9vw, 76px)/1.05 system-ui, sans-serif; text-transform: uppercase; color: #ffd23c; -webkit-text-stroke: 3px #000; paint-order: stroke fill; text-shadow: 0 5px 0 #e8453c, 0 0 28px #ff9a2a99; }
   .h3-call.retro { font: normal 400 clamp(20px, 5.5vw, 44px)/1.3 "Press Start 2P", monospace; text-shadow: 3px 3px #e8453c; }
-  .h3-call small { display: block; font: 600 clamp(11px, 2vw, 16px)/1.2 system-ui, sans-serif; -webkit-text-stroke: 0; color: #9be000; text-shadow: 0 1px 3px #000; text-transform: none; letter-spacing: .08em; }
+  .h3-call small { display: block; font: 600 clamp(11px, 2vw, 16px)/1.2 system-ui, sans-serif; -webkit-text-stroke: 0; color: #d6a8ff; text-shadow: 0 1px 3px #000; text-transform: none; letter-spacing: .08em; }
   .h3-bub { display: none; position: absolute; left: 0; top: 0; padding: 6px 8px; white-space: pre; font: 10px/1.6 "Press Start 2P", monospace; color: #14141f; background: #fff; box-shadow: 0 0 0 2px #000; text-shadow: none; }
   .h3-bub::after { content: ""; position: absolute; left: calc(50% - 4px); top: 100%; border: 4px solid transparent; border-top: 6px solid #fff; border-bottom: 0; }
   .h3-bub.notail::after { display: none; }
@@ -317,7 +321,7 @@
       <div id="gfx" class="seg" style="--n:4" role="radiogroup" aria-label="Graphics">
         <button role="radio" data-gfx="classic">Classic</button>
         <button role="radio" data-gfx="3d">3D</button>
-        <button role="radio" data-gfx="dlss">DLSS 5 ✨</button>
+        <button role="radio" data-gfx="dlss" title="RTX enabled. DLSS 6. It's on! Parody. Not affiliated with NVIDIA.">DLSS 6 ✨</button>
         <button role="radio" data-gfx="fps" title="First-person mode. Bomber Shooter is a nod to the boomer shooter genre. Original art, not affiliated with id Software.">Bomber Shooter</button>
       </div>
       <div class="row chips"><button id="helpBtn" class="chip">? How to play</button><button id="settingsBtn" class="chip">⚙ Settings</button></div>
@@ -326,7 +330,7 @@
     </div>
     <div id="msg"></div>
     <div class="hint"><span>P1 WASD/ZQSD + Space</span> · <span>P2 Arrows + Enter</span> · <span>Gamepad</span> · <span>Touch</span></div>
-    <div class="hint"><span>Fan-made tribute to Konami's Bomberman</span> · <span>not affiliated with Konami</span> · <a href="https://github.com/janroudaut/kaboom-arena" target="_blank" rel="noopener">Source on GitHub</a> · <a href="/tour/">Visual tour</a></div>
+    <div class="hint"><span>Fan-made tribute to Konami's Bomberman</span> · <span>not affiliated with Konami</span> · <span>DLSS 6 mode: parody, not affiliated with NVIDIA</span> · <a href="https://github.com/janroudaut/kaboom-arena" target="_blank" rel="noopener">Source on GitHub</a> · <a href="/tour/">Visual tour</a></div>
   </div>
 </div>
 <div id="story" class="screen"></div>
@@ -378,7 +382,6 @@
   <canvas id="cf" hidden></canvas>
   <div id="ping"></div>
   <button id="pauseBtn" hidden aria-label="Pause">⏸</button>
-  <button id="muteBtn" aria-label="Mute sound" aria-pressed="false">🔊</button>
   <button id="quit" aria-label="Quit">✕</button>
   <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><div id="rematchRecap" class="recap"></div><button id="again" class="btn-main">Play again</button><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
   <div id="recap" class="recap" role="status"></div>
@@ -421,6 +424,7 @@
       <li><b>Pause</b> P or Esc</li>
       <li><b>Sound</b> N mutes or unmutes (settings: effects, music style, voice)</li>
       <li><b>First person</b> Graphics: Bomber Shooter. ←/→ turn, ↑/↓ walk, , and . strafe, M minimap. In local games only the first player gets this view.</li>
+      <li><b>DLSS 6</b> Graphics: DLSS 6. T toggles it, G or the RTX settings button opens the fake control panel. Parody, not affiliated with NVIDIA.</li>
       <li><b>Note</b> Bomber Shooter is a nod to the boomer shooter genre. Original art, not affiliated with id Software.</li>
     </ul>
     <button id="helpDone">Got it</button>
@@ -429,5 +433,6 @@
 <div id="toast" role="status" hidden>New version available <button id="toastReload">Reload</button><button id="toastClose" class="alt" aria-label="Dismiss">✕</button></div>
 <script type="module" src="/game/main.js"></script>
 <noscript><p style="position:fixed;inset:0;display:grid;place-items:center;color:#fff;background:#14141f;padding:24px;text-align:center">Kaboom Arena is a free browser game and needs JavaScript. Drop bombs, blast walls and outlast your rivals, solo, local or online.</p></noscript>
+<button id="muteBtn" aria-label="Mute sound" aria-pressed="false">🔊</button>
 </body>
 </html>
