@@ -12,6 +12,7 @@ export const KEY_EVERY = 300;
 const KINDS = ["solo", "local", "story", "daily", "host"];
 const LEVELS = ["easy", "normal", "hard"];
 const BOOLS = ["powerups", "suddenDeath", "friendlyFire", "chaos", "bombs"];
+const TEAMS = [[0, 1, 0, 1], [0, 0, 1, 1], [0, 0, 1]];
 const NAMES = Object.keys(ABILITY_ID).filter((k) => k !== "undefined");
 
 // One tick of one player: 9 direction pairs x bomb x act, idle = 0.
@@ -29,7 +30,7 @@ export function cleanOpts(o) {
   if (LAYOUTS.includes(o.layout)) out.layout = o.layout;
   for (const k of BOOLS) if (typeof o[k] === "boolean") out[k] = o[k];
   if (typeof o.softDensity === "number" && o.softDensity >= 0 && o.softDensity <= 1) out.softDensity = o.softDensity;
-  if (Array.isArray(o.teams) && o.teams.length === 4 && o.teams.every((v, i) => v === i % 2)) out.teams = [0, 1, 0, 1];
+  if (Array.isArray(o.teams) && TEAMS.some((t) => t.length === o.teams.length && t.every((v, i) => v === o.teams[i]))) out.teams = [...o.teams];
   if (o.tiles === "few" || o.tiles === "many") out.tiles = o.tiles;
   if (MODES.includes(o.mode)) out.mode = o.mode;
   if (o.abilities === true) out.abilities = true;
@@ -120,6 +121,7 @@ function cleanHead(h) {
   if (h.st != null) {
     if (typeof h.st.id !== "string" || !Object.hasOwn(BY_ID, h.st.id) || !int(h.st.i, 0, ladder(h.st.id).length - 1)) return null;
     st = { id: h.st.id, i: h.st.i };
+    if (h.st.co === 1) st = { ...st, co: 1, ...(typeof h.st.al === "string" && Object.hasOwn(BY_ID, h.st.al) ? { al: h.st.al } : {}) };
   }
   const dl = typeof h.dl === "string" && /^\d{4}-\d\d-\d\d$/.test(h.dl) ? h.dl : null;
   const fg = typeof h.fg === "string" && Object.hasOwn(BY_ID, h.fg) ? h.fg : null;
@@ -306,7 +308,8 @@ export function settle(g) {
   award(g.scores, s);
   const champ = g.scores.findIndex((x) => x >= g.win);
   g.over = champ >= 0;
-  g.banner = g.story ? (g.over ? (champ === 0 ? "VICTORY!" : "YOU LOSE") : s.winner === 0 ? "KABOOM!" : s.winner > 0 ? "OUCH!" : "DRAW!") : g.over ? `${who(champ)} wins the match!` : s.winner >= 0 ? `${who(s.winner)} wins the round` : "Draw";
+  const w = tm ? s.winnerTeam : s.winner;
+  g.banner = g.story ? (g.over ? (champ === 0 ? "VICTORY!" : "YOU LOSE") : w === 0 ? "KABOOM!" : w > 0 ? "OUCH!" : "DRAW!") : g.over ? `${who(champ)} wins the match!` : s.winner >= 0 ? `${who(s.winner)} wins the round` : "Draw";
   g.wait = 180;
   return g.over;
 }
@@ -381,7 +384,11 @@ export function createPlayback(match) {
     return !pb.drift;
   };
 
-  pb.story = match.st ? fightOf(match.st.id, match.st.i) : null;
+  pb.story = match.st ? fightOf(match.st.id, match.st.i, match.st.co ? { co: true, ff: false, p: {} } : null) : null;
+  if (pb.story?.co) {
+    pb.story.ally = match.st.al ?? null;
+    pb.story.cast = [match.st.id, "sparky", pb.story.foe, ...(pb.story.ally ? [pb.story.ally] : [])];
+  }
   return pb;
 }
 

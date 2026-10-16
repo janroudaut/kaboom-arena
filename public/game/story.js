@@ -206,3 +206,102 @@ export function banter(a, b) {
   return [fill(TEMPLATES[r.roles[0]][hash(a + b) % 2], BY_ID[b].name), fill(TEMPLATES[r.roles[1]][hash(b + a) % 2], BY_ID[a].name)];
 }
 export const TEMPLATE_ROLES = Object.keys(TEMPLATES);
+
+// Co-op: what each opponent says when two heroes walk in, and the sidekick's lines (picked by hash, same every time).
+export const DUO = {
+  ignatius: "Two of you? I only brought one good eye. You'll have to share.",
+  dynamita: "Two of you? Fine, double the fuse!",
+  baron: "A pair of pests. Do try to explode in an orderly queue.",
+  mama: "Two? Sit down, both of you. There's enough rolling pin for everyone.",
+  dolores: "Two of you, darling? I charge by the head.",
+  tony: "Two of you? Boss never said anything about doubles.",
+  fizzle: "Two heroes! Wait, which one's the hero? Is one of you my horse?",
+  kapow: "Two autographs at once? Oh no, sorry, fighting. Fighting!",
+  gunpowder: "Two descendants. I lit a double fuse just for you. Don't touch it.",
+};
+const SIDE = [
+  "I'm Sparky! I carry the bombs and the opinions.",
+  "Don't worry, I brought snacks and a fire extinguisher. Mostly snacks.",
+  "Second player reporting! Please don't blow me up. Much.",
+  "I call dibs on the shiny power-ups. And the blame.",
+];
+export const SIDE_CHEER = ["We did it! Did we do it? We did it!", "High five! Careful, it's hot."];
+export const SIDE_LOSE = ["Okay, that one was my fault. And yours. Mostly mine.", "Can we blame the lag? There is no lag. Still."];
+export const sideLine = (id) => SIDE[hash(id) % SIDE.length];
+export const sideCheer = (id) => SIDE_CHEER[hash(id) % 2];
+export const sideLose = (id) => SIDE_LOSE[hash(id) % 2];
+
+// Choices: {foe} = the next opponent, {prev} = the one just beaten, {me} = your fighter. res[k] answers option k.
+export const CHOICE_TEXT = {
+  vendor: {
+    title: "Street vendor", text: "A vendor waves a fuse at you. 'Lucky! Only slightly cursed!'",
+    opts: ["Buy the lucky fuse", "Politely decline"],
+    res: ["It sparks happily. The next arena is stuffed with bricks and goodies.", "He gives you a sticker anyway. You feel warm. Suspiciously warm."],
+  },
+  spare: {
+    title: "Down for the count", text: "{prev} is flat on the floor, helmet spinning. The crowd wants a show.",
+    opts: ["Help {prev} up", "Swipe their snacks"],
+    res: ["{prev} grins: 'I'll put in a good word with {foe}.' Nice.", "Crunchy! {prev} will remember this. {foe} will remember the crumbs."],
+  },
+  path: {
+    title: "Fork in the road", text: "Three corridors and one sign: 'To the arena (probably)'.",
+    opts: ["Slippery shortcut", "Fireworks alley", "Boring main road"],
+    res: ["Wheee! Snow, ice and a mild sense of regret.", "Special bombs and a night sky. Someone left the fireworks unlocked.", "Nobody is here. No crowd, no loot, no fuss."],
+  },
+  bribe: {
+    title: "An envelope", text: "{foe}'s agent slides you an envelope. 'Take the day off, champ.'",
+    opts: ["Take the envelope", "Refuse, loudly"],
+    res: ["Cash! {foe} hears about it and trains all night, out of spite.", "The crowd cheers. The agent weeps. Your pockets stay empty and your head stays high."],
+  },
+  riddle: {
+    title: "The janitor's riddle", text: "A janitor blocks the door. 'I have a short fuse and a long list of regrets. What am I?'",
+    opts: ["A candle", "A family reunion", "Uncle Baron"],
+    res: ["'Candles have no regrets,' he sighs, and mops your hopes.", "Correct! He hands you a map to the best loot spots.", "'He has regrets, but no fuse,' he sighs. Wrong, and the mop is wet."],
+  },
+  lunch: {
+    title: "Mama's lunch box", text: "Mama pushes a lunch box into your hands. It hums slightly.",
+    opts: ["Eat it all", "Share with {foe}", "Sell it, no questions"],
+    res: ["Delicious. Explosive. You now burp special bombs.", "{foe} cries a little and goes easy on you. Mama approves from afar.", "A stranger pays double. Mama hears of it. Mama always hears of it."],
+  },
+  fuse: {
+    title: "The Eternal Fuse", text: "It glows. The crowd leans in. {foe} twitches.",
+    opts: ["Grab it", "Share it", "Toss it to the crowd"],
+    res: ["It is warm. Too warm. The arena starts misbehaving.", "You hold it together, with both hands. Everyone sighs, relieved.", "A grandma catches it. Chaos erupts. The loot rains down."],
+  },
+};
+
+export const ENDING_TEXT = {
+  champion: { title: "Family Champion", note: "Finish the story with anyone." },
+  flawless: {
+    title: "Flawless", note: "No continues, no lost rounds.",
+    lines: [
+      "Not one continue. Not one round dropped. The scoreboard weeps with joy.",
+      "The Baron reviews the footage for cheating. He finds only talent and is furious.",
+      "Mama frames the scoreboard and hangs it in the kitchen, above the rolling pin.",
+      "A trophy is awarded. It is slightly on fire. Nobody mentions it.",
+      "Somewhere, a bomb files a complaint about being dodged. It is denied.",
+    ],
+  },
+  peace: {
+    title: "Peacemaker", note: "Be kind in three choices.",
+    lines: [
+      "You never had to win the argument. You just kept being nice, which is terrifying.",
+      "The whole family sits at one table. Nobody holds a bomb. Several hold a fork.",
+      "Ignatius and Baron share the last dumpling. The Eternal Fuse lights a candle.",
+      "Gunpowder sighs from the grave: 'So that's what dinner is for.'",
+      "Mama calls it the best tournament ever. Nothing exploded. She is suspicious.",
+    ],
+  },
+  tycoon: {
+    title: "Tycoon", note: "Take the money in three choices.",
+    lines: [
+      "Every envelope, snack and lucky fuse adds up. You own the arena.",
+      "The Baron is hired as head of security. He asks to be paid in monocles.",
+      "Tickets cost one bomb each. Popcorn costs two. Fire insurance is a rumour.",
+      "Dolores offers a merger. You counter with a bigger one.",
+      "Your face is on the poster, the cup and one very expensive fuse. Cha-ching goes boom.",
+    ],
+  },
+};
+
+export const fillText = (t, v) => t.replace(/\{(foe|prev|me)\}/g, (_, k) => v[k] ?? "");

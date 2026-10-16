@@ -12,7 +12,7 @@ import { setStill } from "./home.js";
 import { initHelp, initInstall, watchUpdates } from "./ux.js";
 import { createNav } from "./nav.js";
 import { createStoryUI } from "./storyui.js";
-import { BY_ID } from "./campaign.js";
+import { BY_ID, actor } from "./campaign.js";
 import { createRecorder, createPlayback, settle, fragmentOf, unpack, rulesOf, titleOf } from "./replay.js";
 import { createReplayList, createPlaybar, shareReplay, notify, readFile, ERR } from "./replayui.js";
 import { createDailyUi } from "./dailyui.js";
@@ -35,6 +35,7 @@ let frame = 0, lastSnap = 0, joinTimer = 0, humans = [];
 let names = [], pnames = [], joined = false, lostAt = 0, subOk = false, resub = false, rmShown = false;
 const RECONNECT_MS = 30000;
 const PNUM = [1, 2, 3, 4].map((i) => `P${i}`);
+const multi = () => mode === "local" || (mode === "story" && humans.length > 1);
 let settings = loadSettings();
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 let vibSent = null;
@@ -46,7 +47,7 @@ let feel = {};
 const fd = createDirector();
 let clock = 0, ts = 1, still = false, recapOn = false, recapOff = false;
 const fx = {
-  human: (i) => (mode === "local" || (mode === "replay" && game?.me < 0) ? i < humans.length : i === (game?.me ?? 0)),
+  human: (i) => (multi() || (mode === "replay" && game?.me < 0) ? i < humans.length : i === (game?.me ?? 0)),
   announce: true, timeFx: false, punch: false, chat: false, still: false, rand: Math.random,
   line: (i, ev) => fightLine(game?.story?.[i ? "foe" : "id"], ev),
 };
@@ -208,7 +209,12 @@ function toMenu(msg = "") {
   show("menu");
 }
 
-const storyUi = createStoryUI({ root: $("story"), show: () => show("story"), fight: startStory, home: () => toMenu(), reduced: () => reduced(settings, motion.matches), blip: (id) => snd.blip(id) });
+const pickFlag = new URLSearchParams(location.search).get("pick");
+const storyUi = createStoryUI({
+  root: $("story"), show: () => show("story"), fight: startStory, home: () => toMenu(), reduced: () => reduced(settings, motion.matches), blip: (id) => snd.blip(id), sfx: (n) => snd.ui(n),
+  coopOk: () => !matchMedia("(pointer: coarse)").matches || [...(navigator.getGamepads?.() || [])].some((g) => g?.connected), label: labelOf,
+  auto: new URLSearchParams(location.search).get("story") && pickFlag !== null && Number.isInteger(+pickFlag) ? Math.max(0, +pickFlag) : null,
+});
 $("storyBtn").onclick = () => storyUi.open();
 const faceIn = (inp, id) => fps.map(inp, game.s.tick, (game.s.players[id]?.x ?? 0) < (W * T) / 2 ? 1 : 3);
 const allInputs = () => (fpsOn() && game ? faceIn(merge(Object.keys(sources)), Math.max(game.me, 0)) : merge(Object.keys(sources)));
@@ -217,7 +223,7 @@ const input = createInput(
   $("pad"),
   $("bombBtn"),
   $("actBtn"),
-  (name) => (mode === "local-lobby" ? joinLocal(name) : dismissRecap() || (name.startsWith("pad") && storyUi.press())),
+  (name) => (mode === "local-lobby" ? joinLocal(name) : storyUi.claim(name) || dismissRecap() || (name.startsWith("pad") && storyUi.press())),
   () => {
     for (const [n, src] of Object.entries(sources)) if (n.startsWith("pad") && (src.dx || src.dy)) storyUi.nav(src.dx, src.dy);
   },
@@ -265,7 +271,7 @@ function makeGame(n, spec, round = 1) {
   const seed = spec?.seed ? spec.seed(round - 1) : Date.now();
   const s = newGame(n, seed, opts);
   s.cfg.theme = theme;
-  const kill = spec?.fighter || !spec || !FAST ? [] : [FAST === "lose" ? 0 : 1];
+  const kill = spec?.fighter || !spec || !FAST ? [] : FAST === "lose" ? spec.heroes ?? [0] : spec.foes ?? [1];
   for (const id of kill) s.players[id].alive = false;
   rec?.begin(s, seed, opts, theme, kill);
   return s;
@@ -284,25 +290,26 @@ function modeIntro(g) {
 }
 
 function startStory(spec) {
-  const me = BY_ID[spec.id], foe = BY_ID[spec.foe];
+  const cast = spec.cast.map(actor);
   mode = "story";
+  humans = spec.co ? spec.humans : [];
   clearBombs();
-  setSuits([me.color, foe.color]);
+  setSuits(cast.map((c) => c.color));
   const extra = {};
   if (settings.bombs) extra.bombs = true;
-  if (settings.abilities) extra.abilities = [me.ability, foe.ability];
-  startMatch(2, Object.keys(extra).length ? { ...spec, opts: { ...spec.opts, ...extra } } : spec, [me.name, foe.name]);
+  if (settings.abilities) extra.abilities = cast.map((c) => c.ability);
+  startMatch(cast.length, Object.keys(extra).length ? { ...spec, opts: { ...spec.opts, ...extra } } : spec, cast.map((c) => c.name));
 }
 
 function startMatch(n, story, storyNames, daily) {
   const labels = mode === "local" || settings.cb ? PNUM : undefined;
-  const who = mode === "local" ? humans.map(() => true) : mode === "host" ? slots.map(Boolean) : [true];
+  const who = multi() ? humans.map(() => true) : mode === "host" ? slots.map(Boolean) : [true];
   const spec = daily ?? story;
   const kind = story ? "story" : daily ? "daily" : mode === "local" ? "local" : mode === "host" ? "host" : "solo";
   const hm = who.reduce((m, h, i) => (h ? m | (1 << i) : m), 0) & 0xffff;
-  rec = createRecorder({ k: kind, n, hm, w: spec ? spec.win : settings.rounds, lv: spec?.level ?? settings.bot, st: story ? { id: story.id, i: story.i } : null, dl: daily?.key ?? null, fg: daily?.fighter.id ?? null, ts: Date.now() });
+  rec = createRecorder({ k: kind, n, hm, w: spec ? spec.win : settings.rounds, lv: spec?.level ?? settings.bot, st: story ? { id: story.id, i: story.i, ...(story.co ? { co: 1, al: story.ally } : {}) } : null, dl: daily?.key ?? null, fg: daily?.fighter.id ?? null, ts: Date.now() });
   game = {
-    s: makeGame(n, spec), n, scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: spec ? spec.win : settings.rounds,
+    s: makeGame(n, spec), n, scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: multi() ? -1 : 0, win: spec ? spec.win : settings.rounds,
     names: storyNames ?? displayNames(n, who, mode === "host" ? names : [myName()], labels),
     story, spec, daily, nr: 1, retro: !!story, round: 1, intro: story ? INTRO : 0,
   };
@@ -325,7 +332,7 @@ function enterGame(g) {
 }
 
 function isBot(id) {
-  if (mode === "local") return id >= humans.length;
+  if (multi()) return id >= humans.length;
   return id !== 0 && !(mode === "host" && slots[id] && inboxes[id]);
 }
 
@@ -340,9 +347,9 @@ function tick() {
       g.hold = 0;
       if (g.over && replaying) { rp.ended = true; return; }
       if (g.over && g.story) {
-        const ok = g.scores[0] > g.scores[1];
+        const foe = g.story.foes[0], ok = g.scores[0] > g.scores[foe];
         toMenu();
-        return storyUi.result(ok);
+        return storyUi.result(ok, g.scores[foe]);
       }
       if (g.over) { g.rematch = true; return; }
       g.banner = "";
@@ -358,7 +365,7 @@ function tick() {
     return;
   }
   if (replaying && !s.done && s.tick >= rp.rounds[rp.r].tk) { rp.ended = true; return; }
-  const allOut = replaying ? false : mode === "solo" || mode === "story" ? !s.players[0].alive : mode === "local" && s.players.every((p) => p.id >= humans.length || !p.alive);
+  const allOut = replaying ? false : multi() ? s.players.every((p) => p.id >= humans.length || !p.alive) : mode === "solo" || mode === "story" ? !s.players[0].alive : false;
   for (let k = 0; k < (allOut ? 3 : 1) && !s.done; k++) {
     let inputs = {};
     if (replaying) {
@@ -369,10 +376,10 @@ function tick() {
       step(s, inputs);
       continue;
     }
-    if (mode === "local") humans.forEach((n, i) => (inputs[i] = i || !fpsOn() ? merge([n]) : faceIn(merge([n]), 0)));
+    if (multi()) humans.forEach((n, i) => (inputs[i] = i || !fpsOn() ? merge([n]) : faceIn(merge([n]), 0)));
     else inputs[0] = allInputs();
     for (const p of s.players) {
-      if (mode === "local" ? p.id < humans.length : p.id === 0) continue;
+      if (multi() ? p.id < humans.length : p.id === 0) continue;
       if (isBot(p.id)) {
         if ((s.tick + p.id) % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, g.spec ? g.spec.level : settings.bot);
         inputs[p.id] = { ...botMem[p.id] };
@@ -625,7 +632,7 @@ function rumble(g) {
   if (!settings.vibrate && !settings.rumble) return;
   const pads = Object.keys(sources).filter((n) => n.startsWith("pad"));
   for (const { id, kind, scale } of observe(feel, g.s)) {
-    if (mode === "local") {
+    if (multi()) {
       const src = humans[id];
       if (src) haptics.fire(kind, { phone: src === "touch", pads: src.startsWith("pad") ? [src] : [] }, scale);
     } else if (id === g.me) haptics.fire(kind, { phone: true, pads }, scale);
@@ -714,7 +721,7 @@ function feelStep(g) {
   fx.still = still;
   fx.timeFx = fxOn && (mode === "solo" || mode === "local" || mode === "story");
   fx.punch = fxOn;
-  fx.chat = settings.announcer && !still && (mode === "story" || (mode === "replay" && !!g.story));
+  fx.chat = settings.announcer && !still && !g.story?.co && (mode === "story" || (mode === "replay" && !!g.story));
   g.call = fd.update(g.s, clock, fx);
   extraCalls(g.s);
   g.bub = fd.bub;
@@ -734,7 +741,7 @@ function syncAct() {
   pads.act = on;
   if (btn.hidden === on) btn.hidden = !on;
   if (!on) return;
-  const p = s.players[mode === "local" ? Math.max(0, humans.indexOf("touch")) : Math.max(0, game.me)];
+  const p = s.players[multi() ? Math.max(0, humans.indexOf("touch")) : Math.max(0, game.me)];
   const fill = p?.ab ? Math.round((1 - (p.cd | 0) / ABILITIES[p.ab][2]) * 20) * 5 : 100;
   if (fill !== actFill) { actFill = fill; btn.style.setProperty("--f", `${fill}%`); btn.classList.toggle("rdy", fill === 100); }
 }
@@ -763,7 +770,7 @@ function loop(now) {
   if (game && !paused && mode !== "replay") rumble(game);
   if (game && !paused) {
     if (!sndGame) enterGame(game);
-    snd.ctx.me = mode === "local" ? -1 : game.me;
+    snd.ctx.me = multi() ? -1 : game.me;
     snd.ctx.human = fx.human;
     snd.feed(game);
   }
@@ -916,12 +923,13 @@ function startReplay(match, back = "menu", pb = createPlayback(match), keepable 
   rpKeep = keepable;
   mode = "replay";
   clearBombs();
-  if (st) setSuits([BY_ID[st.id].color, BY_ID[st.foe].color]);
+  if (st) setSuits(st.cast.map((c) => actor(c).color));
   else if (match.fg) setSuits([BY_ID[match.fg].color]);
+  if (st?.co) humans = ["kb1", "kb2"];
   if (match.k === "local") humans = Array.from({ length: (match.hm.toString(2).match(/1/g) || []).length }, () => "kb1");
   const s = rp.make(0);
   game = {
-    s, n: match.n, scores: Array(match.n).fill(0), banner: "", wait: 0, over: false, me: match.k === "local" ? -1 : 0, win: match.w,
+    s, n: match.n, scores: Array(match.n).fill(0), banner: "", wait: 0, over: false, me: match.k === "local" || st?.co ? -1 : 0, win: match.w,
     names: Array.from({ length: match.n }, (_, i) => match.nm[i] || PNUM[i]), story: st, spec: null, nr: 1, retro: !!st, round: 1, intro: st ? INTRO : 0,
   };
   if (st) game.banner = roundBanner(game);

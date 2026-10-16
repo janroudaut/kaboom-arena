@@ -324,6 +324,38 @@
   #story:not([data-v="sel"]) > .dlg::-webkit-scrollbar { width: 8px; }
   #story:not([data-v="sel"]) > .dlg::-webkit-scrollbar-thumb { background: var(--yellow); }
   #story:not([data-v="sel"]) > .dlg::-webkit-scrollbar-track { background: #16133b; }
+  #story[data-v="log"] { overflow-y: auto; justify-content: safe center; }
+  #story[data-v="pick"], #story[data-v="res"] { background: linear-gradient(#0d1a26, #143a4a); }
+  #story[data-v="secret"] { background: linear-gradient(#0a0626, #3a1a6a); }
+  #story[data-v="claim"] { background: linear-gradient(#0d0b26, #14305a); }
+  #stOpts:empty { display: none; }
+  .card i.co { top: auto; bottom: 26px; right: 4px; font-size: 7px; color: #4ade80; }
+  .vs .sub { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; font-size: 7px; }
+  .vs .sub img.mini { width: 40px; box-shadow: none; }
+  .pixwrap svg { display: block; max-width: 100%; height: auto; }
+  #story:not([data-v="sel"]) .pixwrap svg { max-height: 26dvh; width: auto; }
+  .slots { list-style: none; width: min(100%, 520px); display: grid; gap: 10px; text-align: left; }
+  .slots b { color: var(--yellow); }
+  .pick { flex-direction: column; align-items: stretch; width: min(100%, 560px); }
+  .pick .arc { text-align: center; }
+  .lg { list-style: none; width: min(100%, 560px); display: grid; gap: 12px; text-align: left; }
+  .lg li { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; color: #fff9; }
+  .lg li.got { color: #fff; }
+  .lg small { grid-column: 1; font-size: 7px; color: #fff9; }
+  .lg .arc { grid-column: 2; grid-row: 1 / 3; margin: 0 4px; padding: 8px 10px; }
+  @media (min-width: 600px) { .pick { flex-direction: row; flex-wrap: wrap; justify-content: center; width: min(100%, 720px); } }
+  @media (max-height: 430px) {
+    .screen#story { gap: 6px; padding: 8px 14px; }
+    #story .big { font-size: 22px; text-shadow: 2px 2px #e8453c, 4px 4px #000; }
+    #story .arc { margin: 4px 8px; padding: 8px 14px; }
+    #story .px { margin: 4px; padding: 10px 14px; }
+    #story:not([data-v="sel"]) .one img { width: min(60vw, 240px, 20dvh); }
+    #story:not([data-v="sel"]) .vs figure { flex-basis: min(220px, 20dvh); }
+    #story:not([data-v="sel"]) .vs figcaption { margin-top: 6px; }
+    #story:not([data-v="sel"]) > .dlg { min-height: 4.6em; }
+    #story .pixwrap svg { max-height: 16dvh; }
+    #story .vs .sub { margin-top: 4px; }
+  }
 </style>
 </head>
 <body>

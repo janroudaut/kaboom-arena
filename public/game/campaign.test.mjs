@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { newGame } from "./sim.js";
+import { newGame, step } from "./sim.js";
 import { LAYOUTS } from "./settings.js";
 import { THEMES, setSuits, palette, view } from "./look.js";
-import { ROSTER, BY_ID, KINDS, RELATIONS, ladder, fightOf, relation, WIN, fresh, load, save, sanitize, begin, advance, playable } from "./campaign.js";
-import { TEXT, banter, TEMPLATE_ROLES, fightLine } from "./story.js";
+import { ROSTER, BY_ID, KINDS, RELATIONS, ladder, fightOf, relation, WIN, fresh, load, save, sanitize, begin, advance, playable, CHOICES, SECRET, ENDINGS, SIDEKICK, actor, pendingChoice, endingsOf, tally, effectNotes, continued } from "./campaign.js";
+import { TEXT, banter, TEMPLATE_ROLES, fightLine, DUO, CHOICE_TEXT, ENDING_TEXT, fillText, sideLine } from "./story.js";
+import { ART, pixels } from "./storyart.js";
+import { cleanOpts, settle, createRecorder } from "./replay.js";
 import { wrap } from "./director.js";
 
 const ids = ROSTER.map((f) => f.id);
@@ -141,4 +143,207 @@ test("every fighter has a short in-fight line per event that fits a two-line bub
     }
   }
   assert.equal(fightLine("nobody", "bomb"), null);
+});
+
+const play = (id, co = false) => { const st = fresh(); begin(st, id, { co }); return st; };
+const answerAll = (st, k) => { for (let g = 0; g < 30; g++) { const c = pendingChoice(st.run); if (c) st.run.p[c.id] = Math.min(k, c.opts.length - 1); else if (advance(st).done) return; } };
+
+test("choices: 6-10 well formed, each with matching text and sim-compatible effects", () => {
+  assert.ok(CHOICES.length >= 6 && CHOICES.length <= 10);
+  assert.equal(new Set(CHOICES.map((c) => c.id)).size, CHOICES.length);
+  for (const c of CHOICES) {
+    const t = CHOICE_TEXT[c.id];
+    assert.ok(c.at >= 0 && c.at < 8 && c.opts.length >= 2 && c.opts.length <= 3, c.id);
+    assert.equal(t.opts.length, c.opts.length, c.id);
+    assert.equal(t.res.length, c.opts.length, c.id);
+    assert.ok(t.text.length <= 110 && t.title.length <= 24 && t.opts.every((o) => o.length <= 24) && t.res.every((r) => r.length <= 110), c.id);
+    for (const o of c.opts) {
+      assert.ok(!o.th || o.th in THEMES);
+      assert.ok(!o.ly || LAYOUTS.includes(o.ly));
+      assert.ok(!o.tl || ["few", "many"].includes(o.tl));
+    }
+    if (c.right !== undefined) assert.ok(c.right < c.opts.length);
+  }
+  assert.equal(fillText("{prev} > {foe} > {me} {x}", { prev: "A", foe: "B", me: "C" }), "A > B > C {x}");
+});
+
+test("choices change only the fight they precede: level, density, detours, extras", () => {
+  const st = play("ignatius");
+  const base = fightOf("ignatius", 4, st.run);
+  st.run.p.bribe = 0;
+  const bribed = fightOf("ignatius", 4, st.run);
+  assert.equal(bribed.level, "hard");
+  assert.equal(base.level, "normal");
+  assert.ok(Math.abs(bribed.opts.softDensity - 0.9) < 1e-9);
+  assert.equal(fightOf("ignatius", 5, st.run).level, "hard");
+  st.run.p.path = 0;
+  const path = fightOf("ignatius", 3, st.run);
+  assert.deepEqual([path.opts.tiles, path.theme, path.stage.theme], ["few", "snow", "lava"].map((x, k) => (k === 2 ? BY_ID[ladder("ignatius")[3]].stage.theme : x)));
+  assert.ok(path.notes.length && path.notes.every((n) => typeof n === "string"));
+  st.run.p.path = 1;
+  assert.equal(fightOf("ignatius", 3, st.run).opts.bombs, true);
+  st.run.p.path = 2;
+  assert.equal(fightOf("ignatius", 3, st.run).level, "easy");
+  assert.deepEqual(effectNotes({ k: 1 }), []);
+  for (const c of CHOICES) c.opts.forEach((_, k) => { st.run.p = { [c.id]: k }; assert.doesNotThrow(() => newGame(2, 1, fightOf("mama", c.at, st.run).opts)); });
+});
+
+test("pendingChoice asks each choice once, at its fight", () => {
+  const st = play("tony");
+  assert.equal(pendingChoice(st.run).id, "vendor");
+  st.run.p.vendor = 1;
+  assert.equal(pendingChoice(st.run), null);
+  st.run.i = 2;
+  assert.equal(pendingChoice(st.run).id, "spare");
+  st.run.i = 1;
+  assert.equal(pendingChoice(st.run), null);
+});
+
+test("endings: Flawless, Peacemaker and Tycoon come from hidden counters and are recorded once", () => {
+  assert.deepEqual(Object.keys(SECRET), ENDINGS.slice(1));
+  assert.equal(ENDINGS.length, 4);
+  for (const e of ENDINGS) assert.ok(ENDING_TEXT[e].title && ENDING_TEXT[e].note, e);
+  for (const e of ENDINGS.slice(1)) assert.ok(ENDING_TEXT[e].lines.length >= 4 && ENDING_TEXT[e].lines.length <= 6 && ART[{ flawless: "trophy", peace: "feast", tycoon: "tycoon" }[e]], e);
+
+  let st = play("mama");
+  answerAll(st, 1);
+  assert.deepEqual([...st.ends], ["champion", "flawless", "peace"]);
+  assert.ok(tally({ p: { vendor: 1, spare: 0, bribe: 1 } }).k === 3);
+
+  st = play("mama");
+  st.run.lr = 1;
+  answerAll(st, 99);
+  assert.ok(!st.ends.includes("flawless"));
+  st = play("mama");
+  continued(st);
+  for (const c of CHOICES) st.run.p[c.id] = c.opts.findIndex((o) => o.g);
+  assert.deepEqual(endingsOf({ ...st.run, p: Object.fromEntries(CHOICES.map((c) => [c.id, c.opts.findIndex((o) => o.g)]).filter(([, k]) => k >= 0)) }), ["tycoon"]);
+  assert.ok(!endingsOf({ ct: 0, lr: 0, p: {} }).includes("tycoon") && endingsOf({ ct: 0, lr: 0, p: {} }).includes("flawless"));
+  st = play("mama");
+  st.run.i = 7;
+  advance(st, 1);
+  assert.deepEqual(st.ends, ["champion"]);
+});
+
+test("co-op fights: team layout, partner bots, level floor, friendly fire off by default", () => {
+  const run = { id: "dynamita", i: 0, co: true, ff: false, p: {} };
+  for (const id of ids) {
+    ladder(id).forEach((foe, i) => {
+      const f = fightOf(id, i, { ...run, id });
+      const duo = i >= 2 && i < 7;
+      assert.equal(f.co, true);
+      assert.equal(f.ally !== null, duo, `${id} ${i}`);
+      assert.deepEqual(f.opts.teams, duo ? [0, 0, 1, 1] : [0, 0, 1]);
+      assert.equal(f.cast.length, duo ? 4 : 3);
+      assert.deepEqual(f.heroes, [0, 1]);
+      assert.deepEqual(f.foes, duo ? [2, 3] : [2]);
+      assert.equal(f.cast[1], SIDEKICK.id);
+      assert.ok(f.opts.friendlyFire === false && f.level !== "easy");
+      if (duo) assert.ok(f.ally !== foe && f.ally !== id && f.ally !== "gunpowder" && f.ally in BY_ID);
+      const s = newGame(f.cast.length, 3, f.opts);
+      assert.equal(s.players.length, f.cast.length);
+      assert.deepEqual(s.cfg.teams, f.opts.teams);
+      assert.equal(fightOf(id, i, { ...run, id, ff: true }).opts.friendlyFire, true);
+      assert.ok(DUO[foe] && actor(f.cast[1]).name === "Sparky");
+    });
+  }
+  assert.equal(fightOf("mama", 7, { ...run, id: "mama" }).opts.softDensity, 0.9);
+  const solo = fightOf("mama", 3);
+  assert.deepEqual([solo.co, solo.ally, solo.opts.teams, solo.cast, solo.heroes, solo.foes, solo.opts.friendlyFire], [false, null, null, ["mama", solo.foe], [0], [1], true]);
+});
+
+test("co-op rounds: a team wins when its opponents are all dead, a lone survivor keeps the round going", () => {
+  const f = fightOf("ignatius", 3, { ...play("ignatius", true).run });
+  const run = (dead) => {
+    const s = newGame(4, 5, f.opts), idle = {};
+    for (const id of dead) s.players[id].alive = false;
+    for (let k = 0; k < 600 && !s.done; k++) step(s, idle);
+    return s;
+  };
+  let s = run([2, 3]);
+  assert.equal(s.winnerTeam, 0);
+  s = run([0, 1]);
+  assert.equal(s.winnerTeam, 1);
+  s = run([1, 3]);
+  assert.equal(s.done && s.winnerTeam, false, "one hero and one foe left: nobody wins yet");
+  const pl = [0, 1, 2, 3].map((id) => ({ id })), g = { s: { cfg: { teams: [0, 0, 1, 1] }, players: pl, winner: 1, winnerTeam: 0 }, scores: [0, 0, 0, 0], win: 2, story: true, names: [] };
+  settle(g);
+  assert.deepEqual(g.scores, [1, 1, 0, 0]);
+  assert.equal(g.banner, "KABOOM!");
+  g.s = { cfg: g.s.cfg, players: pl, winner: 2, winnerTeam: 1 };
+  settle(g);
+  assert.equal(g.banner, "OUCH!");
+});
+
+test("co-op replays: recorder keeps the team layout and the co-op marker", () => {
+  assert.deepEqual(cleanOpts({ teams: [0, 0, 1] }).teams, [0, 0, 1]);
+  assert.deepEqual(cleanOpts({ teams: [0, 0, 1, 1] }).teams, [0, 0, 1, 1]);
+  assert.deepEqual(cleanOpts({ teams: [0, 1, 0, 1] }).teams, [0, 1, 0, 1]);
+  for (const bad of [[1, 1, 0], [0, 0, 0, 1], [0, 1], "x", [0, 0, 1, 1, 1]]) assert.equal(cleanOpts({ teams: bad }).teams, undefined);
+  const f = fightOf("baron", 2, { co: true, ff: false, p: {} });
+  assert.deepEqual(cleanOpts(f.opts).teams, [0, 0, 1, 1]);
+  const rec = createRecorder({ k: "story", n: 4, hm: 3, w: 2, lv: f.level, st: { id: "baron", i: 2, co: 1, al: f.ally }, ts: 1 });
+  const s = newGame(4, 9, f.opts);
+  rec.begin(s, 9, f.opts, f.theme, [2, 3]);
+  rec.step(s, {});
+  assert.deepEqual(rec.finish({ nm: [] }).r[0].o.teams, [0, 0, 1, 1]);
+});
+
+test("save migration: an old-format save loads silently with every new field defaulted", () => {
+  const old = { run: { id: "mama", i: 3 }, cleared: ["dynamita", "baron"], unlocked: true };
+  const st = load(mem({ story: JSON.stringify(old) }));
+  assert.deepEqual(st.run, { id: "mama", i: 3, co: false, ff: false, p: {}, ct: 0, lr: 0 });
+  assert.deepEqual([st.cleared, st.coop, st.ends, st.co, st.ff], [["dynamita", "baron"], [], ["champion"], false, false]);
+  assert.deepEqual(sanitize(JSON.parse(JSON.stringify(st))), st);
+  assert.deepEqual(load(mem({ story: JSON.stringify({ unlocked: true }) })).ends, []);
+});
+
+test("save sanitising: choices, counters, co-op and endings are validated", () => {
+  const st = sanitize({
+    run: { id: "tony", i: 3, co: true, ff: 1, ct: -4, lr: "x", p: { vendor: 1, spare: 9, path: 2, bribe: 0, nope: 1, riddle: 1 } },
+    cleared: ["tony", "mama"], coop: ["mama", "baron", "zzz"], ends: ["peace", "bogus", "peace"], co: true,
+  });
+  assert.deepEqual(st.run.p, { vendor: 1, path: 2 });
+  assert.deepEqual([st.run.co, st.run.ff, st.run.ct, st.run.lr], [true, false, 0, 0]);
+  assert.deepEqual(st.coop, ["mama"]);
+  assert.deepEqual(st.ends.sort(), ["champion", "peace"]);
+  assert.equal(st.co, true);
+  const store = mem();
+  const a = play("kapow", true);
+  a.run.p.vendor = 0;
+  a.run.i = 1;
+  a.coop.push("tony"); a.cleared.push("tony");
+  save(store, a);
+  assert.deepEqual(load(store), { ...a, ends: ["champion"], unlocked: true });
+  assert.doesNotThrow(() => load(mem({ story: JSON.stringify({ run: { id: "mama", i: 2, p: "x" }, coop: 3, ends: {} }) })));
+});
+
+test("co-op progress is the same save: a co-op win flags the fighter, a solo win does not", () => {
+  const st = play("fizzle", true);
+  st.run.i = 7;
+  advance(st);
+  assert.deepEqual([st.cleared, st.coop], [["fizzle"], ["fizzle"]]);
+  begin(st, "kapow");
+  st.run.i = 7;
+  advance(st);
+  assert.deepEqual([st.cleared, st.coop], [["fizzle", "kapow"], ["fizzle"]]);
+});
+
+test("co-op and ending text: reactions for every fighter, short sidekick lines", () => {
+  for (const id of ids) {
+    assert.ok(DUO[id] && DUO[id].length <= 90, id);
+    assert.ok(sideLine(id).length > 10 && sideLine(id) === sideLine(id));
+  }
+  assert.equal(SIDEKICK.name, "Sparky");
+  assert.ok(!ids.includes(SIDEKICK.id) && !ROSTER.some((f) => f.color === SIDEKICK.color));
+});
+
+test("story art: rectangles stay inside their canvas and render to a static SVG", () => {
+  for (const [name, a] of Object.entries(ART)) {
+    assert.ok(a.r.length > 5, name);
+    for (const r of a.r) assert.ok(r.x >= 0 && r.y >= 0 && r.w > 0 && r.h > 0 && r.x + r.w <= a.w && r.y + r.h <= a.h && /^#[0-9a-f]{3,6}$/i.test(r.c), `${name} ${JSON.stringify(r)}`);
+    const svg = pixels(name, 4);
+    assert.match(svg, /^<svg [^>]*viewBox="0 0 \d+ \d+"/);
+    assert.ok(!svg.includes("<animate") && !svg.includes("<style"));
+  }
 });
