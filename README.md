@@ -4,7 +4,8 @@ A free retro arcade arena that runs in your browser: drop bombs, blast walls, gr
 and outlast your rivals. Solo against bots, local on one screen, or online with a room code.
 Works on desktop, phone and tablet, installable as a PWA, solo mode works offline.
 
-**💣 Play it: https://kaboom.philament.club**
+**💣 Play it: https://kaboom.philament.club**  
+**🖼️ Visual tour (screens, power-ups, story mode): https://kaboom.philament.club/tour/**
 
 > A fan-made tribute to Konami's Bomberman. Not affiliated with or endorsed by Konami.
 > All graphics are drawn in code, no original assets are used.
