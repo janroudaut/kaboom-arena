@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /cable
+
+Sitemap: https://kaboom.philament.club/sitemap.xml

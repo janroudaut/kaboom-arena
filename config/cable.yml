@@ -1,0 +1,9 @@
+# async = in-process memory: a single Puma process only (no WEB_CONCURRENCY > 1)
+development:
+  adapter: async
+
+test:
+  adapter: test
+
+production:
+  adapter: async

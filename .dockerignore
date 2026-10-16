@@ -1,0 +1,12 @@
+.git
+.github
+/log/*
+/tmp/*
+/config/master.key
+node_modules
+*.md
+deploy.sh
+*.md
+LICENSE
+docs
+deploy.sh

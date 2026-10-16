@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#111118">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Kaboom Arena – free Bomberman-style fan game, play online</title>
+<meta name="description" content="Kaboom Arena is a free fan-made tribute to Konami's Bomberman: drop bombs, blast walls and outlast your rivals. Solo vs bots, local with friends or online with a room code. Works on desktop, phone and tablet, installable, offline solo. Not affiliated with Konami.">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://kaboom.philament.club/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Kaboom Arena">
+<meta property="og:title" content="Kaboom Arena – a fan-made Bomberman tribute">
+<meta property="og:description" content="A free fan-made tribute to Konami's Bomberman. Drop bombs, blast walls, outlast your rivals: solo vs bots, local or online. Plays in your browser, works offline.">
+<meta property="og:url" content="https://kaboom.philament.club/">
+<meta property="og:image" content="https://kaboom.philament.club/og.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Kaboom Arena logo over a pixel-art arena where four bomb-dropping characters play">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Kaboom Arena – a fan-made Bomberman tribute">
+<meta name="twitter:description" content="A free fan-made tribute to Konami's Bomberman. Solo vs bots, local or online. Plays in your browser, works offline.">
+<meta name="twitter:image" content="https://kaboom.philament.club/og.jpg">
+<meta name="twitter:image:alt" content="Kaboom Arena logo over a pixel-art arena">
+<meta name="application-name" content="Kaboom Arena">
+<meta name="apple-mobile-web-app-title" content="Kaboom">
+<meta name="mobile-web-app-capable" content="yes">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Kaboom Arena","url":"https://kaboom.philament.club/","description":"Kaboom Arena is a free fan-made tribute to Konami's Bomberman: drop bombs, blast walls and outlast your rivals. Solo vs bots, local with friends or online with a room code. Works on desktop, phone and tablet, installable, offline solo. Not affiliated with Konami.","image":"https://kaboom.philament.club/og.jpg","genre":["Arcade","Action"],"gamePlatform":["Web browser","Android","iOS","Windows","macOS","Linux"],"applicationCategory":"Game","operatingSystem":"Any","playMode":["SinglePlayer","MultiPlayer"],"numberOfPlayers":{"@type":"QuantitativeValue","minValue":1,"maxValue":4},"inLanguage":"en","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR","availability":"https://schema.org/InStock"}}</script>
+<script type="importmap">{"imports":{"three":"/game/vendor/three.module.min.js","three/addons/":"/game/vendor/three-addons/"}}</script>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #111118; color: #fff; font: 16px/1.4 system-ui, sans-serif; overflow: hidden; overscroll-behavior: none; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
+  .screen.on { display: flex; }
+  :root { --yellow: #ffd23c; --red: #e8453c; --blue: #3c7be8; --ink: #14141f; }
+  .screen:not(#game) { background: radial-gradient(ellipse at 50% 0%, #2b2347 0%, #14141f 60%, #0b0b12 100%); }
+  button, input { font: inherit; padding: 12px 20px; border-radius: 12px; border: 0; min-width: 240px; }
+  button { background: var(--blue); color: #fff; font-weight: 700; cursor: pointer; border-bottom: 4px solid #0004; transition: transform .08s, filter .15s; }
+  button:hover:not(:disabled) { filter: brightness(1.12); }
+  button:active:not(:disabled) { transform: translateY(3px); border-bottom-width: 1px; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.alt { background: #333348; }
+  input { text-align: center; text-transform: uppercase; letter-spacing: .3em; background: #222233; color: #fff; }
+  .row { display: flex; gap: 8px; }
+  .row button, .row input { min-width: 0; }
+  #msg { min-height: 1.4em; color: var(--yellow); text-align: center; }
+  #code { font-size: 3rem; letter-spacing: .3em; font-weight: 700; }
+  canvas { image-rendering: pixelated; touch-action: none; }
+  #quit { position: absolute; top: 6px; right: 6px; min-width: 0; padding: 6px 12px; background: #0008; }
+  #c3 { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; image-rendering: auto; }
+  #hud3 { position: absolute; inset: 0; pointer-events: none; font: 600 14px/1.3 system-ui, sans-serif; text-shadow: 0 1px 3px #000; }
+  .h3-scores { position: absolute; top: 10px; left: 12px; display: flex; gap: 14px; font-size: 18px; }
+  .h3-scores span { padding-left: 22px; position: relative; }
+  .h3-scores span::before { content: ""; position: absolute; left: 0; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
+  .h3-scores span.dead { opacity: .4; text-decoration: line-through; }
+  .h3-sudden { color: #ff5a4a; animation: blink .6s infinite alternate; }
+  @keyframes blink { to { opacity: .3; } }
+  .h3-badge { position: absolute; top: 44px; left: 12px; min-width: 0; padding: 8px 12px; text-align: left; pointer-events: auto; background: #000a; border: 1px solid #fff3; font-size: 12px; font-weight: 500; }
+  .h3-badge.on { border-color: #76b900; color: #cfe8a0; box-shadow: 0 0 14px #76b90066; }
+  .h3-badge.on b { color: #9be000; }
+  .h3-spec { display: none; position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 8px; background: #000a; white-space: nowrap; }
+  .h3-banner { position: absolute; left: 0; right: 0; top: 42%; text-align: center; font-size: 28px; padding: 14px; background: #000b; border-block: 2px solid #ffd23c; }
+  #touch { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+  #touch > * { pointer-events: auto; }
+  #quit, #pauseBtn { z-index: 4; }
+  #pauseBtn { position: absolute; top: 6px; right: 52px; min-width: 0; padding: 6px 12px; background: #0008; }
+  #pause { position: absolute; inset: 0; z-index: 5; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0b0b12d9; }
+  #pause.on { display: flex; }
+  #pause h2 { margin: 0 0 6px; font-size: 2.2rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
+  #pause small { color: #fff8; }
+  #nick, #inviteLink { text-transform: none; letter-spacing: 0; }
+  #lobby { overflow-y: auto; justify-content: safe center; }
+  #invite { display: grid; gap: 10px; justify-items: center; width: min(92vw, 360px); }
+  #invite[hidden] { display: none; }
+  #qr { width: 168px; height: 168px; border-radius: 8px; }
+  #inviteLink { width: 100%; font-size: .8rem; letter-spacing: 0; }
+  #lobbyList { list-style: none; margin: 0; padding: 0; text-align: center; }
+  #lobbyList li { overflow-wrap: anywhere; }
+  .overlay { position: absolute; inset: 0; z-index: 6; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0b0b12d9; text-align: center; padding: 16px; }
+  .overlay.on { display: flex; }
+  .overlay h2 { margin: 0 0 6px; font-size: 1.8rem; color: var(--yellow); overflow-wrap: anywhere; }
+  #reconn { position: fixed; z-index: 9; font-size: 1.4rem; font-weight: 700; }
+  #ping { position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); font: 11px monospace; opacity: .6; pointer-events: none; z-index: 4; }
+  @media (pointer: coarse) { #touch { display: block; } }
+  #pad { position: absolute; left: max(20px, env(safe-area-inset-left)); bottom: 20px; width: 130px; height: 130px; border-radius: 50%; background: #fff2; touch-action: none; display: flex; align-items: center; justify-content: center; }
+  #knob { width: 54px; height: 54px; border-radius: 50%; background: #fff6; pointer-events: none; }
+  #bombBtn { position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: 30px; width: 100px; height: 100px; min-width: 0; padding: 0; border-radius: 50%; background: #e8453ccc; font-size: 2.4rem; touch-action: none; }
+
+  #menu { overflow: hidden; gap: 0; }
+  #attract { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+  #menu::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 45%, #0000 0%, #0b0b12cc 75%), linear-gradient(#0b0b1299, #0b0b12dd); }
+  .hero { position: relative; display: grid; gap: 16px; justify-items: center; padding: 16px; width: min(94vw, 460px); max-height: 100%; overflow-y: auto; scrollbar-width: none; }
+  .logo { text-align: center; line-height: .88; margin: 0; text-transform: uppercase; font-weight: 900; font-style: italic; }
+  .logo .k { display: block; font-size: clamp(2.4rem, min(14vw, 11vh), 5.4rem); letter-spacing: .02em; background: linear-gradient(#fff6b0 0%, #ffd23c 35%, #ff8a2a 70%, #e8453c 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 0 #7a1d14) drop-shadow(0 8px 16px #e8453c88); }
+  .logo .a { display: block; font-size: clamp(1.3rem, 6vw, 2.2rem); letter-spacing: .5em; margin-right: -.5em; color: #fff; text-shadow: 0 3px 0 #3c7be8, 0 0 18px #3c7be8aa; }
+  .bomb { width: clamp(34px, min(11vw, 8vh), 70px); height: auto; margin-bottom: -6px; }
+  .menu-col { display: grid; gap: 10px; width: 100%; padding: 14px; border-radius: 18px; background: #0b0b12d9; border: 1px solid #ffffff1f; }
+  .btn-main { font-size: 1.15rem; padding: 14px 20px; background: linear-gradient(#ffd23c, #ff9a2a); color: #3a1500; text-transform: uppercase; letter-spacing: .06em; box-shadow: 0 6px 20px #ff9a2a55; }
+  .solo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .solo button { background: linear-gradient(#ffd23c, #ff9a2a); color: #3a1500; padding: 14px 6px; min-width: 0; line-height: 1.15; box-shadow: 0 6px 20px #ff9a2a44; }
+  .solo b { display: block; font-size: 1.5rem; }
+  .solo small { text-transform: uppercase; letter-spacing: .1em; font-size: .72rem; opacity: .8; }
+  .label { font-size: .72rem; text-transform: uppercase; letter-spacing: .25em; color: #fff9; margin: 4px 0 -2px; text-align: center; }
+  .menu-col .row { width: 100%; }
+  .menu-col .row input { flex: 1 1 0; min-width: 0; }
+  .menu-col .row button { flex: 1.2 1 0; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 12px; overflow: hidden; border: 1px solid #fff3; background: #222233; }
+  .seg button { min-width: 0; padding: 9px 4px; border-radius: 0; border-bottom: 0; background: transparent; color: #fffa; font-size: .85rem; }
+  .seg button + button { border-left: 1px solid #fff2; }
+  .seg button[aria-checked="true"] { background: var(--blue); color: #fff; box-shadow: inset 0 -3px #0004; font-weight: 800; }
+  .seg button[aria-checked="true"]::before { content: "✓ "; }
+  .seg button[data-gfx="dlss"][aria-checked="true"] { background: linear-gradient(135deg, #76b900, #2f8f3a); }
+  .chip { justify-self: center; min-width: 0; padding: 7px 14px; font-size: .85rem; background: #ffffff18; border: 1px solid #fff3; }
+  .hint { color: #fff8; font-size: .75rem; text-align: center; }
+  .hint span { white-space: nowrap; }
+  .hint a { color: var(--yellow); white-space: nowrap; }
+  .hint { text-wrap: balance; }
+  @media (max-height: 760px) {
+    .hero { gap: 10px; }
+    .menu-col { gap: 7px; padding: 10px; }
+    .menu-col button { padding-block: 9px; }
+    .solo button { padding-block: 6px; }
+    .solo b { font-size: 1.25rem; }
+  }
+  @media (max-height: 560px) and (min-width: 560px) {
+    .label, .hint { display: none; }
+    .hero { width: min(96vw, 880px); grid-template-columns: 1fr 1fr; align-items: center; gap: 12px 28px; }
+    .hero .logo-wrap { grid-row: 1 / span 3; }
+    .hero #msg, .hero .hint { grid-column: 2; }
+    .bomb { width: 44px; }
+  }
+
+</style>
+</head>
+<body>
+<div id="menu" class="screen on">
+  <canvas id="attract" aria-hidden="true"></canvas>
+  <div class="hero">
+    <div class="logo-wrap">
+      <svg class="bomb" viewBox="0 0 64 70" aria-hidden="true">
+        <circle cx="30" cy="42" r="22" fill="#14141f"/><circle cx="30" cy="42" r="22" fill="none" stroke="#3b3b55" stroke-width="2"/>
+        <circle cx="21" cy="33" r="5" fill="#fff" opacity=".35"/>
+        <path d="M42 22 Q50 12 55 10" stroke="#b5703a" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <g class="spark"><circle cx="56" cy="9" r="6" fill="#ffd23c"/><circle cx="56" cy="9" r="3" fill="#e8453c"/></g>
+      </svg>
+      <h1 class="logo"><span class="k">Kaboom</span><span class="a">Arena</span></h1>
+    </div>
+    <div class="menu-col">
+      <input id="nick" maxlength="12" placeholder="Your name (optional)" autocomplete="nickname" aria-label="Your name">
+      <div class="label">Solo vs bots</div>
+      <div class="solo">
+        <button data-solo="1"><b>1</b><small>bot</small></button>
+        <button data-solo="2"><b>2</b><small>bots</small></button>
+        <button data-solo="3"><b>3</b><small>bots</small></button>
+      </div>
+      <button id="local" class="alt">Local · 2–4 players</button>
+      <div class="label">Online</div>
+      <button id="create" class="alt">Create a room</button>
+      <div class="row"><input id="joinCode" maxlength="4" placeholder="CODE" size="6" autocomplete="off" aria-label="Room code"><button id="join" class="alt">Join</button></div>
+      <div class="label">Graphics</div>
+      <div id="gfx" class="seg" role="radiogroup" aria-label="Graphics">
+        <button role="radio" data-gfx="classic">Classic</button>
+        <button role="radio" data-gfx="3d">3D</button>
+        <button role="radio" data-gfx="dlss">DLSS 5 ✨</button>
+      </div>
+    </div>
+    <div id="msg"></div>
+    <div class="hint"><span>P1 WASD/ZQSD + Space</span> · <span>P2 Arrows + Enter</span> · <span>Gamepad</span> · <span>Touch</span></div>
+    <div class="hint"><span>Fan-made tribute to Konami's Bomberman</span> · <span>not affiliated with Konami</span> · <a href="https://github.com/janroudaut/kaboom-arena" target="_blank" rel="noopener">Source on GitHub</a></div>
+  </div>
+</div>
+<div id="lobby" class="screen">
+  <div>Room code</div>
+  <div id="code"></div>
+  <div id="invite" hidden>
+    <canvas id="qr" aria-label="QR code of the invite link"></canvas>
+    <input id="inviteLink" readonly aria-label="Invite link">
+    <div class="row"><button id="copyLink" class="alt">Copy link</button><button id="shareLink" class="alt" hidden>Share</button></div>
+  </div>
+  <ul id="lobbyList"></ul>
+  <div id="lobbyInfo"></div>
+  <button id="start">Start</button>
+  <button id="lobbyBack" class="alt">Cancel</button>
+</div>
+<div id="localLobby" class="screen">
+  <div>Everyone: press your bomb key (Space, Enter) or a gamepad button to join</div>
+  <ul id="localList" style="list-style:none;padding:0;margin:0;font-size:1.2rem"></ul>
+  <label><input type="checkbox" id="localBots" checked style="min-width:0"> Fill with bots</label>
+  <button id="localStart">Start</button>
+  <button id="localBack" class="alt">Back</button>
+</div>
+<div id="game" class="screen">
+  <canvas id="c"></canvas>
+  <canvas id="c3" hidden></canvas>
+  <div id="ping"></div>
+  <button id="pauseBtn" hidden aria-label="Pause">⏸</button>
+  <button id="quit" aria-label="Quit">✕</button>
+  <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><button id="again" class="btn-main">Play again</button><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
+  <div id="pause"><h2>Paused</h2><button id="resume" class="btn-main">Resume</button><button id="pauseQuit" class="alt">Quit to menu</button><small>P / Esc / gamepad Start</small></div>
+  <div id="touch"><div id="pad"><div id="knob"></div></div><button id="bombBtn">💣</button></div>
+</div>
+<div id="reconn" class="overlay">Reconnecting…</div>
+<script type="module" src="/game/main.js"></script>
+<script type="module" src="/game/home.js"></script>
+<noscript><p style="position:fixed;inset:0;display:grid;place-items:center;color:#fff;background:#14141f;padding:24px;text-align:center">Kaboom Arena is a free browser game and needs JavaScript. Drop bombs, blast walls and outlast your rivals, solo, local or online.</p></noscript>
+</body>
+</html>
