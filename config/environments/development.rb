@@ -17,11 +17,10 @@ Rails.application.configure do
 
   # Enable/disable Action Controller caching. By default Action Controller caching is disabled.
   # Run rails dev:cache to toggle Action Controller caching.
-  if Rails.root.join("tmp/caching-dev.txt").exist?
-    config.public_file_server.headers = { "cache-control" => "public, max-age=#{2.days.to_i}" }
-  else
-    config.action_controller.perform_caching = false
-  end
+  config.action_controller.perform_caching = false unless Rails.root.join("tmp/caching-dev.txt").exist?
+
+  # Always revalidate the game's ES modules: a long max-age mixes old and new files and breaks imports.
+  config.public_file_server.headers = { "cache-control" => "no-cache" }
 
   # Change to :null_store to avoid any caching.
   config.cache_store = :memory_store

@@ -10,6 +10,7 @@ import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts
 import { createHaptics, browserVibrate, browserRumble, observe, vibrationReport } from "./haptics.js";
 import { setStill } from "./home.js";
 import { initHelp, initInstall, watchUpdates } from "./ux.js";
+import { createNav } from "./nav.js";
 import { createStoryUI } from "./storyui.js";
 import { BY_ID } from "./campaign.js";
 import { fightLine } from "./story.js";
@@ -112,8 +113,29 @@ for (const b of $("gfx").children) {
 }
 applyGfx();
 
+// Browser Back closes the top layer (help overlay, or the current screen) instead of leaving the site.
+let cur = "menu", help = null;
+const nav = createNav({ history, onBack: (kind) => goBack(kind) });
+addEventListener("popstate", () => nav.pop());
+
+function goBack(kind) {
+  if (kind === "help") return help?.close();
+  const offline = mode === "solo" || mode === "local" || mode === "story";
+  if (cur === "game" && !game?.rematch) {
+    if (!offline) return nav.open("screen");
+    if (!paused) { setPause(true); return nav.open("screen"); }
+  }
+  if (cur === "settings") return show("menu");
+  if (mode === "story" || cur === "story") return leave();
+  if (mode === "host") return endMatch();
+  toMenu();
+}
+
 function show(id) {
   for (const el of document.querySelectorAll(".screen")) el.classList.toggle("on", el.id === id);
+  cur = id;
+  if (id === "menu") nav.close("screen");
+  else nav.open("screen");
 }
 
 function toMenu(msg = "") {
@@ -631,7 +653,7 @@ requestAnimationFrame(loop);
 applyLook();
 watchUpdates();
 initInstall();
-initHelp([$("helpBtn"), $("pauseHelp")]);
+help = initHelp([$("helpBtn"), $("pauseHelp")], { open: () => nav.open("help"), close: () => nav.close("help") });
 
 $("recap").onclick = dismissRecap;
 addEventListener("keydown", (e) => e.code !== "Escape" && e.code !== "KeyP" && !e.metaKey && !e.ctrlKey && dismissRecap());

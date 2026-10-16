@@ -247,6 +247,23 @@
   .one img { display: block; width: 100%; height: auto; aspect-ratio: 1; image-rendering: pixelated; box-shadow: 0 -4px var(--c), 0 4px var(--c), -4px 0 var(--c), 4px 0 var(--c); }
   .gold { color: var(--yellow); }
   .red { color: #ff6b5e; }
+
+  /* One pixel font for the whole UI chrome (buttons, labels, titles); long paragraphs keep the system font for readability. */
+  :root { --pixel: "Press Start 2P", ui-monospace, "Courier New", monospace; }
+  button, input, .label, h2, h3, #msg, #code, .h3-scores, .h3-banner { font-family: var(--pixel); font-weight: 400; }
+  button, input { font-size: .7rem; line-height: 1.5; letter-spacing: .02em; }
+  .btn-main { font-size: .8rem; }
+  .seg button { font-size: .56rem; padding: 12px 3px; line-height: 1.5; }
+  .solo b { font-size: 1.2rem; } .solo small { font-size: .5rem; letter-spacing: .05em; }
+  .label { font-size: .55rem; }
+  h2, h3 { font-size: .85rem; line-height: 1.6; }
+  #pause h2 { font-size: 1.3rem; }
+  #code { font-size: 1.8rem; }
+  #msg { font-size: .6rem; line-height: 1.6; }
+  .chip { font-size: .6rem; }
+  .logo { font-family: var(--pixel); font-style: normal; font-weight: 400; }
+  .logo .k { font-size: clamp(1.8rem, min(11vw, 9vh), 3.2rem); letter-spacing: 0; }
+  .logo .a { font-size: clamp(.8rem, 3.6vw, 1.15rem); letter-spacing: .45em; margin-right: -.45em; margin-top: .5em; }
 </style>
 </head>
 <body>

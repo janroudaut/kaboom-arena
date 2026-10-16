@@ -7,7 +7,7 @@ const ITEMS = [
 ];
 const SEEN = "helpSeen";
 
-export function initHelp(openers) {
+export function initHelp(openers, layer = {}) {
   const dlg = $("help"), done = $("helpDone");
   $("helpItems").replaceChildren(...ITEMS.map(([name, text], i) => {
     const cv = Object.assign(document.createElement("canvas"), { width: 28, height: 28 });
@@ -20,12 +20,14 @@ export function initHelp(openers) {
   let from = null;
   const open = () => {
     from = document.activeElement;
+    layer.open?.();
     dlg.hidden = false;
     dlg.scrollTop = 0;
     done.focus();
     try { localStorage.setItem(SEEN, "1"); } catch {}
   };
   const close = () => {
+    layer.close?.();
     dlg.hidden = true;
     from?.isConnected && from.focus?.();
   };
@@ -40,6 +42,7 @@ export function initHelp(openers) {
   let seen = true;
   try { seen = !!localStorage.getItem(SEEN); } catch {}
   if (!seen) open();
+  return { close };
 }
 
 export function initInstall() {

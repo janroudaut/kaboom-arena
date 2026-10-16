@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -31,6 +31,9 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 ## Story mode
 - `campaign.js` (pure: roster, `RELATIONS`/`KINDS`, per-fighter `ladder`, `fightOf`, persistence with an injected storage), `story.js` (all text, relation templates, `banter(a, b)`), `storyui.js` (DOM screens: select, intro, VS, win, continue, ending, unlock) and `campaign.test.mjs`. `mode === "story"` reuses the solo flow with fixed rules (first to 2 rounds, sudden death, power-ups, friendly fire on); bot level and stage (layout/theme) come from the ladder; the boss fight uses a packed arena (`softDensity` 0.9). Progress lives in localStorage `story`.
 - A new fighter needs a `ROSTER` entry, a ladder, a `TEXT` entry, a portrait in `public/portraits/` and an `sw.js` entry; every relation role used in `KINDS` needs a `TEMPLATES` entry in `story.js` (the test enforces it). `look.js` `setSuits(cols)` overrides suit colours by player index for story fights; `toMenu()` resets it and colour-blind mode keeps priority.
+- Browser Back: `nav.js` (tested in `nav.test.mjs`) mirrors the open layers (a non-menu screen, the help overlay) in the history and reconciles them in a microtask, so Back closes the top layer instead of leaving the site: settings/lobbies go to the menu, a running offline game pauses first and then quits, online games ignore Back (use the ✕). `main.js` `show()` opens/closes the "screen" layer and `goBack()` decides what Back means; `ux.js` `initHelp` takes the same layer callbacks.
+- Development serves `public/` with `Cache-Control: no-cache`: a long max-age mixed old and new ES modules ("does not provide an export named ..."). The service worker revalidates network-first requests with `cache: "no-cache"` for the same reason.
+- UI font: one pixel font (Press Start 2P) for buttons, labels and titles (CSS block at the end of `index.html`); paragraphs keep the system font.
 - UI rule: static screens, timers only while text types and during the continue countdown, no CSS animations. The pixel font (Press Start 2P, OFL, vendored) is only used on `#story`, story round banners and `#storyBtn`. Story navigation uses its own keydown handler and the pad callbacks in `main.js`.
 - Dev flags: `?story=fast` kills the bot at the start of each round and `?story=lose` kills the human (used to fast-forward a run in tests and screenshots).
 

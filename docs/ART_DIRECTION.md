@@ -13,7 +13,7 @@ Kaboom Arena is an affectionate parody of 90s arcade games. This page keeps new 
 - Themes (grass, snow, desert, lava, night) change mood, not rules.
 - The **DLSS 5 mode is the one place for excess**: bloom, glossy faces, fake AI notifications. It is a joke the game is in on, and it never changes gameplay.
 - Parody of real brands (the DLSS/RTX mode) is text only: no logos, no brand colours or trade dress, and a visible "parody, not affiliated" note in the README and in the mode's own menu. Heavy visual extras (reflections, light shafts) are desktop-only and switch off when the dynamic resolution drops or reduce motion is on.
-- Story screens use the pixel font (Press Start 2P) and nothing else does.
+- One pixel font (Press Start 2P, vendored) for the whole UI chrome: buttons, labels, titles, banners and story screens. Long paragraphs (help, bios) keep the system font for readability.
 
 ## Sound (planned)
 - Synthesised chiptune, no audio files. Soundtrack follows the theme (grass: arcade, snow: bells, desert: eastern scales, lava: heavy riffs, night: synthwave) with a character motif on top in story mode; selectable in settings, "Auto" by default.
