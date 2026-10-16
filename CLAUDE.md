@@ -12,9 +12,15 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - `input.js`: one "source" per device (kb1 WASD/ZQSD + Space, kb2 arrows + Enter, touch, padN). Solo/online merge all sources; local mode gives one source per player, claimed by pressing its bomb key.
 - Graphics are 100% drawn in code (`render.js`), no third-party game assets.
 - Optional 3D renderer (`render3d.js`, Three.js r170 vendored in `public/game/vendor`, import map in `index.html`): same game state as the 2D one, loaded on demand. Modes: Classic (2D) / 3D / DLSS 5 (parody: bloom, chromatic aberration, "Neural Faces", dynamic resolution). Every vendored file must be added to `FILES` in `public/sw.js`.
+- `input.js` ignores the game keys when a button outside `#game` has focus, so menu buttons stay keyboard-operable; `main.js` wraps `draw` in try/catch so one bad frame never stops the render loop.
 - Home screen background is a live bot match (`home.js`), throttled on purpose (CPU is a first-class constraint).
 - `cable.yml` uses the `async` adapter: a single Puma process only (never `WEB_CONCURRENCY` > 1), otherwise switch to Solid Cable or Redis.
 - `public/sw.js`: hand-written precache list, add every new file to it and bump the cache name. It is network-first (cache is for offline only): stale-while-revalidate served a mix of old and new ES modules and broke inputs.
+
+## Match settings and themes
+- `settings.js` (pure, tested in `settings.test.mjs`) holds the match options: bot level, rounds to win, arena layout, theme, power-ups, sudden death, teams, friendly fire. They persist in localStorage (`settings`), apply to solo, local and the online host, and `roundOpts` builds the `newGame` options for every round. Teams are `[0,1,0,1]` and only exist with exactly 4 players.
+- Themes are purely visual and live in `look.js` for both renderers (2D palette + a `d3` block for 3D). The host sets `s.cfg.theme` after `newGame`; unknown themes fall back to grass. A new theme needs both blocks.
+- `cfg` (theme, teams, layout...) only travels with grid snapshots, so a guest always has it when it first renders. The snapshot wrapper also carries `w` (rounds to win).
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).
@@ -29,6 +35,8 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - The guest sends its inputs per tick, at most 30 msg/s (`{t:"in", n, d:[codes]}`, nothing when idle). The host replays them through `createInbox` (one input per sim tick; a missing tick repeats the held direction, idle after 12 ticks; `ack` = guest ticks consumed, returned in every snapshot).
 - The guest predicts its own player with `movePlayer`/`placeBomb` from `sim.js`: on each snapshot it restarts from the authoritative state and replays unacknowledged inputs; a gap under 24 px is smoothed (decay), larger ones teleport. Other players and bombs are rendered ~100 ms in the past, interpolated between snapshots (clock = host tick, offset = min of arrivals); renderers do no smoothing of their own. A locally placed bomb is a "ghost" until confirmed.
 - Compact snapshots (`packSnap`): grid as a string and `cfg` only when changed or every 60 snaps, flames as arrays. RTT: `ping`/`pong` every second (allow-listed in `RoomChannel`), shown at the bottom (`#ping`). Debug: `?lag=120&jitter=40` delays every message in each direction (order preserved).
+- Sliding (kicked) bombs are drawn from `sc` (`bombPos` in `look.js`); `createGuestNet.frame` extrapolates `sc` between snapshots.
+- Not predicted by the guest: item pickups, kicks/sliding bombs, curse and shield timers (the snapshot corrects them within the 24 px smoothing).
 - Limits: item pickups are not predicted (small correction when a guest grabs one); the local player never sees others in the present (100 ms visual delay, collisions decided by the host); a guest with no input for 12 ticks is considered idle.
 
 ### Lobby and online UX (`lobby.js`, pure, + `lobby.test.mjs`)

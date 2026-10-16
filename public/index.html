@@ -61,6 +61,12 @@
   .h3-scores span { padding-left: 22px; position: relative; }
   .h3-scores span::before { content: ""; position: absolute; left: 0; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
   .h3-scores span.dead { opacity: .4; text-decoration: line-through; }
+  .h3-scores .team { padding: 0; display: flex; gap: 10px; border-bottom: 3px solid var(--c); }
+  .h3-scores .team::before { display: none; }
+  .h3-scores .team > b { color: var(--c); }
+  .h3-scores .me { text-decoration: underline; }
+  .h3-curse { color: #d58cff; }
+  .h3-first { color: #fff9; font-size: 14px; }
   .h3-sudden { color: #ff5a4a; animation: blink .6s infinite alternate; }
   @keyframes blink { to { opacity: .3; } }
   .h3-badge { position: absolute; top: 44px; left: 12px; min-width: 0; padding: 8px 12px; text-align: left; pointer-events: auto; background: #000a; border: 1px solid #fff3; font-size: 12px; font-weight: 500; }
@@ -112,12 +118,18 @@
   .menu-col .row { width: 100%; }
   .menu-col .row input { flex: 1 1 0; min-width: 0; }
   .menu-col .row button { flex: 1.2 1 0; }
-  .seg { display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 12px; overflow: hidden; border: 1px solid #fff3; background: #222233; }
+  .seg { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); border-radius: 12px; overflow: hidden; border: 1px solid #fff3; background: #222233; }
   .seg button { min-width: 0; padding: 9px 4px; border-radius: 0; border-bottom: 0; background: transparent; color: #fffa; font-size: .85rem; }
   .seg button + button { border-left: 1px solid #fff2; }
   .seg button[aria-checked="true"] { background: var(--blue); color: #fff; box-shadow: inset 0 -3px #0004; font-weight: 800; }
   .seg button[aria-checked="true"]::before { content: "✓ "; }
   .seg button[data-gfx="dlss"][aria-checked="true"] { background: linear-gradient(135deg, #76b900, #2f8f3a); }
+  .seg.wrap { gap: 1px; background: #fff2; }
+  .seg.wrap button { background: #222233; border-left: 0; }
+  .seg.wrap button[aria-checked="true"] { background: var(--blue); }
+  #settings { overflow-y: auto; justify-content: safe center; }
+  #settings .menu-col { flex: none; width: min(94vw, 460px); margin-block: 12px; }
+  #settings h2 { margin: 0; text-align: center; font-size: 1.4rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
   .chip { justify-self: center; min-width: 0; padding: 7px 14px; font-size: .85rem; background: #ffffff18; border: 1px solid #fff3; }
   .hint { color: #fff8; font-size: .75rem; text-align: center; }
   .hint span { white-space: nowrap; }
@@ -171,10 +183,19 @@
         <button role="radio" data-gfx="3d">3D</button>
         <button role="radio" data-gfx="dlss">DLSS 5 ✨</button>
       </div>
+      <button id="settingsBtn" class="chip">⚙ Match settings</button>
     </div>
     <div id="msg"></div>
     <div class="hint"><span>P1 WASD/ZQSD + Space</span> · <span>P2 Arrows + Enter</span> · <span>Gamepad</span> · <span>Touch</span></div>
     <div class="hint"><span>Fan-made tribute to Konami's Bomberman</span> · <span>not affiliated with Konami</span> · <a href="https://github.com/janroudaut/kaboom-arena" target="_blank" rel="noopener">Source on GitHub</a></div>
+  </div>
+</div>
+<div id="settings" class="screen">
+  <div class="menu-col">
+    <h2>Match settings</h2>
+    <div id="setList" style="display:grid;gap:10px"></div>
+    <div class="hint">Teams need 4 players (P1 + P3 vs P2 + P4). Online: your settings apply when you host.</div>
+    <div class="row"><button id="setReset" class="alt">Reset to defaults</button><button id="setBack">Done</button></div>
   </div>
 </div>
 <div id="lobby" class="screen">

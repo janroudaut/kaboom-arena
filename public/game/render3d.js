@@ -9,6 +9,7 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 import { W, H, T, SUDDEN, FLAME } from "./sim.js";
 import { ICONS } from "./render.js";
 import { esc } from "./lobby.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos } from "./look.js";
 
 const SUIT = [0xf2f2f2, 0x454556, 0xe8453c, 0x3c7be8];
 const CSS_SUIT = ["#f2f2f2", "#454556", "#e8453c", "#3c7be8"];
@@ -49,31 +50,31 @@ function canvasTexture(w, h, paint) {
   return tex;
 }
 
-const groundTexture = () => canvasTexture(W * 32, H * 32, (c) => {
+const groundTexture = (d3) => canvasTexture(W * 32, H * 32, (c) => {
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      c.fillStyle = (x + y) % 2 ? "#37a049" : "#41ae54";
+      c.fillStyle = d3.ground[(x + y) % 2];
       c.fillRect(x * 32, y * 32, 32, 32);
       for (let i = 0; i < 24; i++) {
-        c.fillStyle = Math.random() < 0.5 ? "#ffffff10" : "#00000014";
+        c.fillStyle = d3.speck[Math.random() < 0.5 ? 0 : 1];
         c.fillRect(x * 32 + Math.random() * 30, y * 32 + Math.random() * 30, 2, 3);
       }
     }
   }
 });
 
-const brickTexture = () => canvasTexture(128, 128, (c) => {
-  c.fillStyle = "#6d3a1c"; c.fillRect(0, 0, 128, 128);
+const brickTexture = ([base, hue, sat, light]) => canvasTexture(128, 128, (c) => {
+  c.fillStyle = base; c.fillRect(0, 0, 128, 128);
   for (let row = 0; row < 6; row++) {
     const off = row % 2 ? 0 : 32;
     for (let x = -32 + off; x < 128; x += 64) {
-      c.fillStyle = `hsl(20 ${54 + Math.random() * 12}% ${40 + Math.random() * 10}%)`;
+      c.fillStyle = `hsl(${hue} ${sat + Math.random() * 12}% ${light + Math.random() * 10}%)`;
       c.fillRect(x + 2, row * 21 + 2, 60, 17);
     }
   }
 });
 
-function makePlayer(id) {
+function makePlayer(id, skullMat, auraMat) {
   const root = new THREE.Group();
   const suit = new THREE.MeshStandardMaterial({ color: SUIT[id], roughness: 0.35, metalness: 0.15 });
   const skin = new THREE.MeshPhysicalMaterial({ color: 0xffd9b0, roughness: 0.5 });
@@ -119,8 +120,22 @@ function makePlayer(id) {
   }
   neural.visible = false;
 
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.045, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.04;
+  const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.62, 24, 16), new THREE.MeshPhysicalMaterial({ color: 0x5fe0ff, emissive: 0x2090c0, emissiveIntensity: 0.5, transparent: true, opacity: 0.28, roughness: 0.1, depthWrite: false }));
+  bubble.position.y = 0.6;
+  const skull = new THREE.Sprite(skullMat);
+  skull.position.y = 1.9;
+  skull.scale.setScalar(0.5);
+  const aura = new THREE.Sprite(auraMat);
+  aura.position.y = 0.8;
+  aura.scale.setScalar(1.6);
+  for (const o of [ring, bubble, skull, aura]) o.visible = false;
+  root.add(ring, bubble, skull, aura);
+
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  root.userData = { head, eyes, legs, arms, neural, skin, lastWalk: 0 };
+  root.userData = { head, eyes, legs, arms, neural, skin, ring, bubble, skull, aura, lastWalk: 0 };
   root.scale.setScalar(1.15);
   return root;
 }
@@ -135,8 +150,12 @@ function makeBomb() {
   fuse.rotation.z = -0.4;
   const spark = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffd23c, emissive: 0xffa000, emissiveIntensity: 4 }));
   spark.position.set(0.14, 0.88, 0);
-  g.add(body, fuse, spark);
-  g.userData = { body, spark };
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 8, 32), new THREE.MeshBasicMaterial({ color: 0xff463c, transparent: true }));
+  halo.rotation.x = Math.PI / 2;
+  halo.position.y = 0.06;
+  halo.visible = false;
+  g.add(body, fuse, spark, halo);
+  g.userData = { body, spark, halo };
   return g;
 }
 
@@ -202,7 +221,8 @@ export function createRenderer3D(canvas, hudParent) {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
   const center = new THREE.Vector3(W / 2, 0, H / 2);
 
-  scene.add(new THREE.HemisphereLight(0xdfe9ff, 0x66785a, 1.5));
+  const hemi = new THREE.HemisphereLight(0xdfe9ff, 0x66785a, 1.5);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffecc8, 2.8);
   sun.position.set(center.x - 7, 15, center.z + 9);
   sun.target.position.copy(center);
@@ -224,16 +244,35 @@ export function createRenderer3D(canvas, hudParent) {
     return l;
   });
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 0.9 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ map: groundTexture(themeOf().d3), roughness: 0.9 }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(W / 2, 0, H / 2);
   ground.receiveShadow = true;
   scene.add(ground);
 
   const hardMesh = new THREE.InstancedMesh(new RoundedBoxGeometry(1, 1.1, 1, 3, 0.08), new THREE.MeshStandardMaterial({ color: 0x9a9fb8, metalness: MOBILE ? 0.15 : 0.7, roughness: MOBILE ? 0.5 : 0.28 }), W * H);
-  const softMesh = new THREE.InstancedMesh(new RoundedBoxGeometry(0.94, 0.94, 0.94, 3, 0.06), new THREE.MeshStandardMaterial({ map: brickTexture(), roughness: 0.85 }), W * H);
+  const softMesh = new THREE.InstancedMesh(new RoundedBoxGeometry(0.94, 0.94, 0.94, 3, 0.06), new THREE.MeshStandardMaterial({ map: brickTexture(themeOf().d3.soft), roughness: 0.85 }), W * H);
   for (const m of [hardMesh, softMesh]) { m.castShadow = true; m.receiveShadow = true; scene.add(m); }
   const dummy = new THREE.Object3D();
+  let themeKey = "grass";
+
+  function applyTheme(th) {
+    if (th.key === themeKey) return;
+    themeKey = th.key;
+    const d = th.d3;
+    ground.material.map.dispose();
+    ground.material.map = groundTexture(d);
+    softMesh.material.map.dispose();
+    softMesh.material.map = brickTexture(d.soft);
+    hardMesh.material.color.setHex(d.hard);
+    hardMesh.material.metalness = MOBILE ? 0.15 : d.metal;
+    scene.background.setHex(d.bg);
+    hemi.color.setHex(d.hemi[0]);
+    hemi.groundColor.setHex(d.hemi[1]);
+    hemi.intensity = d.hemi[2];
+    sun.color.setHex(d.sun[0]);
+    sun.intensity = d.sun[1];
+  }
 
   const players = [], bombs = [], jets = [], balls = [], puffs = [], items = [];
   const grow = (pool, make, n, parent = scene) => {
@@ -252,6 +291,7 @@ export function createRenderer3D(canvas, hudParent) {
     grad.addColorStop(0, "#fff"); grad.addColorStop(0.4, "#ffffff88"); grad.addColorStop(1, "#ffffff00");
     c.fillStyle = grad; c.fillRect(0, 0, 64, 64);
   });
+  const auraMat = new THREE.SpriteMaterial({ map: puffTex, color: 0xb040ff, opacity: 0.45, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
   const puffMats = [0xff6a1a, 0xffc060].map((color) => new THREE.SpriteMaterial({ map: puffTex, color, opacity: 0.22, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
   const sparkGeo = new THREE.BufferGeometry();
   const sparkPos = new Float32Array(MAX_PARTICLES * 3).fill(-100);
@@ -323,17 +363,27 @@ export function createRenderer3D(canvas, hudParent) {
   }
 
   function updateHud(g, now) {
-    const s = g.s;
-    const scores = s.players.map((p, i) => `<span style="--c:${CSS_SUIT[i]}" class="${p.alive ? "" : "dead"}">${g.names ? esc(g.names[i]) + " " : ""}${Number(g.scores[i]) | 0}${i === g.me ? " (you)" : ""}</span>`).join("");
-    const sudden = s.tick >= SUDDEN - 300 ? `<b class="h3-sudden">${s.tick >= SUDDEN ? "SUDDEN DEATH" : "SUDDEN DEATH SOON"}</b>` : "";
+    const s = g.s, tm = teamsOf(s);
+    const one = (e) => `<span style="--c:${CSS_SUIT[e.i]}" class="${e.alive ? "" : "dead"} ${e.i === g.me ? "me" : ""}">${esc(e.name)} ${tm ? "" : e.score}${e.i === g.me ? " (you)" : ""}</span>`;
+    const rows = hudEntries(g);
+    const scores = tm
+      ? [...new Set(rows.map((e) => e.team))].map((t) => {
+        const mem = rows.filter((e) => e.team === t), ti = teamInfo(t);
+        return `<span class="team" style="--c:${ti.col}"><b>${ti.name.toUpperCase()} ${mem[0].score}</b>${mem.map(one).join("")}</span>`;
+      }).join("")
+      : rows.map(one).join("");
+    const me = g.me >= 0 ? s.players[g.me] : null;
+    const cur = me?.alive ? curseText(me) : "";
+    const sudden = s.tick >= SUDDEN - 300 && s.cfg?.suddenDeath !== false ? `<b class="h3-sudden">${s.tick >= SUDDEN ? "SUDDEN DEATH" : "SUDDEN DEATH SOON"}</b>` : g.win ? `<b class="h3-first">first to ${g.win}</b>` : "";
+    const extra = sudden + (cur ? `<b class="h3-curse">${cur}</b>` : "");
     const badge = dlss
       ? `<b>DLSS 5 ON</b><br>Neural Faces™ · Frame Gen ×4<br>${Math.round(fps * 4)} FPS · AI res ${Math.round(scale * 100)}%`
       : `DLSS OFF · ${Math.round(fps)} FPS<br><small>click or press T to enable</small>`;
     const out = g.me >= 0 && !s.done && s.players[g.me]?.alive === false && !g.banner;
-    const key = scores + sudden + badge + g.banner + out;
+    const key = scores + extra + badge + g.banner + out;
     if (key === lastHud) return;
     lastHud = key;
-    elScores.innerHTML = scores + sudden;
+    elScores.innerHTML = scores + extra;
     elBadge.innerHTML = badge;
     elBadge.className = `h3-badge ${dlss ? "on" : ""}`;
     elBanner.textContent = g.banner || "";
@@ -354,7 +404,8 @@ export function createRenderer3D(canvas, hudParent) {
       }
     }
 
-    const s = g.s;
+    const s = g.s, tm = teamsOf(s);
+    applyTheme(themeOf(s.cfg));
     hardMesh.count = softMesh.count = 0;
     let nh = 0, ns = 0;
     for (let y = 0; y < H; y++) {
@@ -372,10 +423,15 @@ export function createRenderer3D(canvas, hudParent) {
     hardMesh.instanceMatrix.needsUpdate = softMesh.instanceMatrix.needsUpdate = true;
 
     s.players.forEach((p, i) => {
-      if (!players[i]) { players[i] = makePlayer(i); scene.add(players[i]); setDlss(dlss); }
+      if (!players[i]) { players[i] = makePlayer(i, itemMats[7], auraMat); scene.add(players[i]); setDlss(dlss); }
       const m = players[i], u = m.userData;
       m.visible = p.alive;
       if (!p.alive) return;
+      u.ring.visible = !!tm;
+      if (tm) u.ring.material.color.set(teamInfo(tm[i]).col);
+      u.bubble.visible = p.shield > 0 && !(p.shield < 60 && p.shield % 10 < 5);
+      u.skull.visible = u.aura.visible = !!p.curse;
+      u.skull.position.y = 1.9 + Math.sin(now / 200) * 0.06;
       const moving = p.walk !== u.lastWalk;
       u.lastWalk = p.walk;
       const swing = moving ? Math.sin(p.walk * 0.45) * 0.7 : 0;
@@ -392,7 +448,13 @@ export function createRenderer3D(canvas, hudParent) {
     s.bombs.forEach((b, i) => {
       const o = bombs[i];
       const rate = b.t < 40 ? 3 : 1;
-      o.position.set(b.x + 0.5, 0, b.y + 0.5);
+      const [bx, by] = bombPos(b, s.grid), remote = !!s.players[b.owner]?.remote;
+      o.position.set(bx + 0.5, 0, by + 0.5);
+      const { halo, body } = o.userData;
+      halo.visible = remote;
+      halo.material.opacity = 0.55 + 0.4 * Math.sin(s.tick / 4);
+      body.material.color.setHex(remote ? 0x4a0c10 : 0x15151c);
+      body.material.emissive.setHex(remote ? 0x6a0a0a : 0);
       o.userData.body.scale.setScalar(1 + Math.sin((b.t * rate) / 5) * 0.07);
       o.userData.spark.visible = b.t % 8 < 5;
     });
@@ -457,7 +519,10 @@ export function createRenderer3D(canvas, hudParent) {
     grow(items, () => new THREE.Sprite(itemMats[0]), s.items.length);
     s.items.forEach((it, i) => {
       const o = items[i];
-      o.material = itemMats[it.type];
+      const mat = itemMats[it.type];
+      o.visible = !!mat;
+      if (!mat) return;
+      o.material = mat;
       o.position.set(it.x + 0.5, 0.6 + Math.sin(now / 300 + it.x) * 0.1, it.y + 0.5);
       o.scale.setScalar(0.85);
     });

@@ -161,7 +161,8 @@ export function createGuestNet(me, delay = 100) {
         players[me] = { ...players[me], x: pred.x + ex, y: pred.y + ey, face: pred.face, walk: pred.walk };
       }
       ghosts = ghosts.filter((g) => L - g.at < GHOST_TTL && !a.bombs.some((b) => b.x === g.x && b.y === g.y));
-      const bombs = a.bombs.concat(
+      const ahead = Math.max(0, rt - buf[0].ms) / TICK_MS;
+      const bombs = a.bombs.map((b) => (b.dx || b.dy ? { ...b, sc: b.sc + ahead } : b)).concat(
         ghosts.map((g) => ({ x: g.x, y: g.y, owner: me, t: Math.max(1, FUSE - (L - g.at)), range: 1, pass: [] })),
       );
       return { ...a, players, bombs };

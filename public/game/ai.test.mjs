@@ -115,3 +115,15 @@ test("tournament: hard and normal beat easy by a clear margin, hard at least hol
   assert.ok(ne >= 2 * en && ne >= 30, `normal ${ne} vs easy ${en}`);
   assert.ok(hn >= nh - 5, `hard ${hn} vs normal ${nh}`);
 });
+
+test("teams: a bot does not treat its teammate as a target", () => {
+  const mk = (teams) => {
+    const s = newGame(4, 1, { teams });
+    s.grid.fill(0);
+    const put = (p, x, y) => { p.x = x * 16 + 8; p.y = y * 16 + 8; };
+    put(s.players[0], 3, 5); put(s.players[2], 5, 5); put(s.players[1], 13, 11); put(s.players[3], 12, 1);
+    return s;
+  };
+  assert.equal(think(mk(null), 0, () => 0, "hard").bomb, true);
+  assert.notEqual(think(mk([0, 1, 0, 1]), 0, () => 0, "hard").bomb, true);
+});

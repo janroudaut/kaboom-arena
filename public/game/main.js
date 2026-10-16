@@ -5,17 +5,20 @@ import { createInput, merge, sources, clearBombs, labelOf } from "./input.js";
 import { joinRoom, newCode, cid } from "./net.js";
 import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
+import { teamInfo } from "./look.js";
+import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts } from "./settings.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c"), ctx = canvas.getContext("2d");
 canvas.width = CW;
 canvas.height = CH;
 
-const WIN_SCORE = 2, SNAP_EVERY = 2, SEND_EVERY = 2, GRID_EVERY = 60, THINK_EVERY = 6;
+const SNAP_EVERY = 2, SEND_EVERY = 2, GRID_EVERY = 60, THINK_EVERY = 6;
 let mode = null, game = null, room = null, slots = [], inboxes = {}, botMem = {};
 let frame = 0, lastSnap = 0, joinTimer = 0, humans = [];
 let names = [], pnames = [], joined = false, lostAt = 0, subOk = false, resub = false, rmShown = false;
 const RECONNECT_MS = 30000;
+let settings = loadSettings();
 let gnet = null, lastGrid = null, lastCfg = null, sentGrid = "", snapCount = 0, rtt = 0, pingTimer = 0;
 const GFX = ["classic", "3d", "dlss"];
 let gfx = "classic", r3 = null;
@@ -123,11 +126,18 @@ function renderLocalLobby() {
   $("localStart").disabled = humans.length < 2;
 }
 
+function makeGame(n) {
+  const { opts, theme } = roundOpts(settings, n);
+  const s = newGame(n, Date.now(), opts);
+  s.cfg.theme = theme;
+  return s;
+}
+
 function startMatch(n) {
   const labels = mode === "local" ? [1, 2, 3, 4].map((i) => `P${i}`) : undefined;
   const who = mode === "local" ? humans.map(() => true) : mode === "host" ? slots.map(Boolean) : [true];
   game = {
-    s: newGame(n), scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0,
+    s: makeGame(n), scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: settings.rounds,
     names: displayNames(n, who, mode === "host" ? names : [myName()], labels),
   };
   botMem = {};
@@ -148,7 +158,7 @@ function tick() {
     if (--g.wait === 0) {
       if (g.over) { g.rematch = true; return; }
       g.banner = "";
-      g.s = newGame(s.players.length);
+      g.s = makeGame(s.players.length);
       sentGrid = "";
     }
     return;
@@ -161,7 +171,7 @@ function tick() {
     for (const p of s.players) {
       if (mode === "local" ? p.id < humans.length : p.id === 0) continue;
       if (isBot(p.id)) {
-        if (s.tick % THINK_EVERY === 0) botMem[p.id] = think(s, p.id);
+        if (s.tick % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, settings.bot);
         inputs[p.id] = { ...botMem[p.id] };
         if (botMem[p.id]) botMem[p.id].bomb = false;
       } else inputs[p.id] = inboxes[p.id].next();
@@ -170,10 +180,12 @@ function tick() {
     clearBombs();
   }
   if (!s.done) return;
-  if (s.winner >= 0) g.scores[s.winner]++;
-  const champ = g.scores.findIndex((x) => x >= WIN_SCORE);
+  const tm = s.cfg.teams, who = (id) => (tm ? `Team ${teamInfo(tm[id]).name}` : g.names[id]);
+  if (s.winnerTeam >= 0) s.players.forEach((p) => tm[p.id] === s.winnerTeam && g.scores[p.id]++);
+  else if (s.winner >= 0) g.scores[s.winner]++;
+  const champ = g.scores.findIndex((x) => x >= settings.rounds);
   g.over = champ >= 0;
-  g.banner = g.over ? `${g.names[champ]} wins the match!` : s.winner >= 0 ? `${g.names[s.winner]} wins the round` : "Draw";
+  g.banner = g.over ? `${who(champ)} wins the match!` : s.winner >= 0 ? `${who(s.winner)} wins the round` : "Draw";
   g.wait = 180;
 }
 
@@ -188,7 +200,7 @@ function sendSnap() {
   const withGrid = grid !== sentGrid || snapCount++ % GRID_EVERY === 0;
   sentGrid = grid;
   const a = slots.map((_, i) => inboxes[i]?.ack ?? null);
-  room.send({ t: "snap", g: { s: packSnap(s, withGrid), a, scores, banner, r: !!game.rematch } });
+  room.send({ t: "snap", g: { s: packSnap(s, withGrid), a, scores, banner, r: !!game.rematch, w: settings.rounds } });
 }
 
 const pushLobby = () => room.send({ t: "lobby", slots, names });
@@ -251,7 +263,7 @@ function onMsg(m) {
     gnet ||= createGuestNet(me);
     gnet.onSnap(s, m.g.a?.[me], lastSnap);
     if (!game) show("game");
-    game = { s, scores: m.g.scores, banner: m.g.banner, me, names: pnames, rematch: !!m.g.r };
+    game = { s, scores: m.g.scores, banner: m.g.banner, me, names: pnames, rematch: !!m.g.r, win: Math.min(3, m.g.w | 0) };
   } else if (m.t === "end") toMenu();
 }
 
@@ -400,7 +412,7 @@ function guestTick() {
   if (m) room.send({ t: "in", ...m });
 }
 
-let last = performance.now(), acc = 0;
+let last = performance.now(), acc = 0, lastErr = "";
 function loop(now) {
   acc += Math.min(now - last, 100);
   last = now;
@@ -418,7 +430,11 @@ function loop(now) {
   syncRematch();
   if (game && (!paused || dirty)) {
     dirty = false;
-    gfx !== "classic" && r3 ? r3.draw(game) : draw(ctx, game);
+    try {
+      gfx !== "classic" && r3 ? r3.draw(game) : draw(ctx, game);
+    } catch (err) {
+      if (String(err) !== lastErr) console.error((lastErr = String(err)), err);
+    }
   }
   requestAnimationFrame(loop);
 }
@@ -426,7 +442,37 @@ requestAnimationFrame(loop);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
-document.addEventListener("click", (e) => e.target.closest?.("button")?.blur());
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("button");
+  if (b && !b.closest("#settings")) b.blur();
+});
+
+function markSettings() {
+  for (const seg of document.querySelectorAll("#setList .seg")) {
+    for (const b of seg.children) b.setAttribute("aria-checked", b.dataset.v === JSON.stringify(settings[seg.dataset.key]));
+  }
+}
+
+for (const f of FIELDS) {
+  const label = Object.assign(document.createElement("div"), { className: "label", id: `set-${f.key}`, textContent: f.label });
+  const seg = Object.assign(document.createElement("div"), { className: "seg wrap" });
+  seg.dataset.key = f.key;
+  seg.setAttribute("role", "radiogroup");
+  seg.setAttribute("aria-labelledby", label.id);
+  seg.style.setProperty("--n", Math.min(f.opts.length, 3));
+  for (const [v, text] of f.opts) {
+    const b = Object.assign(document.createElement("button"), { textContent: text });
+    b.setAttribute("role", "radio");
+    b.dataset.v = JSON.stringify(v);
+    b.onclick = () => { settings[f.key] = v; saveSettings(settings); markSettings(); };
+    seg.append(b);
+  }
+  $("setList").append(label, seg);
+}
+$("settingsBtn").onclick = () => { markSettings(); show("settings"); $("setBack").focus(); };
+$("setBack").onclick = () => show("menu");
+$("setReset").onclick = () => { settings = { ...DEFAULTS }; saveSettings(settings); markSettings(); };
+addEventListener("keydown", (e) => e.code === "Escape" && $("settings").classList.contains("on") && show("menu"));
 
 const invite = roomFromSearch(location.search);
 if (invite) {

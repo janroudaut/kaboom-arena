@@ -7,10 +7,11 @@ const rng = (seed) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294
 const wire = (o) => JSON.parse(JSON.stringify(o));
 
 // Host sim + guest predictor (player 1) over a simulated link; returns stats.
-function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds = 20, seed = 1 }) {
+function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds = 20, seed = 1, setup, held }) {
   const rand = rng(seed);
   const s = newGame(2, 7), inbox = createInbox();
   s.grid = s.grid.map((g) => (g === 2 ? 0 : g));
+  setup?.(s);
   const gnet = createGuestNet(1);
   const events = [];
   const send = (fn, ordered, state) => {
@@ -22,7 +23,7 @@ function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds =
   const down = { at: 0 }, up = { at: 0 };
   let now = 0, hostNext = 0, guestNext = 3, hostTicks = 0, guestTicks = 0, snaps = 0, lastGrid = null;
   let maxErr = 0, errSum = 0, errN = 0;
-  const script = [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1]];
+  const script = held ? [held] : [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1]];
   let cur = script[0], left = 0;
   const total = seconds * 1000;
   while (now < total + 1500) {
@@ -64,7 +65,7 @@ function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds =
     now += 1;
   }
   const own = gnet.frame(now).players[1], host = s.players[1];
-  return { own, host, maxErr, meanErr: errSum / errN, walk: host.walk, alive: host.alive };
+  return { own, host, maxErr, meanErr: errSum / errN, walk: host.walk, alive: host.alive, bombs: s.bombs };
 }
 
 function mustMove(r) {
@@ -158,4 +159,60 @@ test("new round (tick regression) resets interpolation without sliding", () => {
   g.frame(500);
   g.onSnap(mk(2, 40), null, 600);
   assert.equal(g.frame(610).players[1].x, 40);
+});
+
+const curseP1 = (type) => (s) => { s.players[1].curse = { type, t: 1e6 }; };
+
+for (const type of ["reverse", "slow", "fast"]) {
+  test(`prediction: ${type} curse stays in sync with the host`, () => {
+    const r = simulate({ lag: 50, jitter: 20, seconds: 15, seed: 8, setup: curseP1(type) });
+    assert.ok(r.maxErr < 8, `max error ${r.maxErr}`);
+    mustMove(r);
+    assert.deepEqual([r.own.x, r.own.y], [r.host.x, r.host.y]);
+  });
+}
+
+test("prediction: kicking a bomb is corrected by snapshots, no teleport, converges", () => {
+  const r = simulate({
+    lag: 50, jitter: 20, seconds: 8, seed: 2, held: [-1, 0],
+    setup: (s) => { s.players[1].kick = true; s.bombs.push({ x: 11, y: 11, owner: 0, t: 99999, range: 2, pass: [] }); },
+  });
+  assert.equal(r.bombs[0].x, 1, "bomb was kicked to the wall");
+  assert.ok(r.maxErr < 24, `max error ${r.maxErr}`);
+  assert.deepEqual([r.own.x, r.own.y], [r.host.x, r.host.y]);
+});
+
+test("pass: guest walks through its own bomb like the host", () => {
+  const r = simulate({ lag: 50, jitter: 20, seconds: 6, seed: 4, held: [-1, 0], setup: (s) => { s.players[1].pass = true; s.bombs.push({ x: 11, y: 11, owner: 0, t: 99999, range: 2, pass: [] }); } });
+  assert.ok(r.maxErr < 8, `max error ${r.maxErr}`);
+  assert.deepEqual([r.own.x, r.own.y], [r.host.x, r.host.y]);
+});
+
+test("snapshots: shield, curse, sliding bombs, teams and theme survive the wire", () => {
+  const s = newGame(4, 9, { teams: [0, 1, 0, 1], friendlyFire: false });
+  s.cfg.theme = "lava";
+  s.players[0].shield = 200;
+  s.players[1].curse = { type: "auto", t: 300 };
+  s.players[2].kick = s.players[2].remote = s.players[2].pass = true;
+  s.bombs.push({ x: 3, y: 3, owner: 0, t: 100, range: 2, pass: [], dx: 1, dy: 0, sc: 3 });
+  s.flames.push({ x: 2, y: 2, t: 9, o: 1 });
+  s.winnerTeam = 1;
+  const full = unpackSnap(wire(packSnap(s, true)));
+  assert.deepEqual(full.players, s.players);
+  assert.deepEqual(full.bombs, s.bombs);
+  assert.deepEqual(full.cfg, s.cfg);
+  assert.equal(full.winnerTeam, 1);
+  const lean = unpackSnap(wire(packSnap(s, false)), full.grid, full.cfg);
+  assert.deepEqual(lean.cfg, s.cfg);
+  assert.deepEqual(lean.players, s.players);
+});
+
+test("interpolation: a sliding bomb advances smoothly between snapshots", () => {
+  const g = createGuestNet(0);
+  const mk = (tick, sc) => { const s = newGame(2, 3); s.tick = tick; s.bombs.push({ x: 5, y: 5, owner: 1, t: 99, range: 2, pass: [], dx: 1, dy: 0, sc }); return s; };
+  g.onSnap(mk(100, 0), null, 0);
+  g.onSnap(mk(102, 2), null, 33);
+  const scs = [];
+  for (let now = 100; now < 200; now += 10) scs.push(g.frame(now).bombs[0].sc);
+  assert.ok(scs.every((v, i) => !i || v >= scs[i - 1]) && scs.at(-1) > 0, scs.join());
 });

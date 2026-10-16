@@ -34,7 +34,7 @@ export function createInput(pad, bombBtn, onPress, onChange, onPause) {
 
   const held = { kb1: [], kb2: [] };
   addEventListener("keydown", (e) => {
-    if (e.target.tagName === "INPUT") return;
+    if (e.target.tagName === "INPUT" || (e.target.tagName === "BUTTON" && !e.target.closest("#game"))) return;
     for (const [name, map] of Object.entries(SCHEMES)) {
       const v = map[e.code];
       if (!v) continue;

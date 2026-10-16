@@ -1,7 +1,7 @@
-const CACHE = "kaboom-v14";
+const CACHE = "kaboom-v15";
 const FILES = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png",
-  "/game/main.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js",
+  "/game/main.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js", "/game/look.js", "/game/settings.js",
   "/game/vendor/qrcode.mjs",
   "/game/vendor/actioncable.esm.js", "/game/render3d.js", "/game/vendor/three.module.min.js",
   "/game/vendor/three-addons/postprocessing/EffectComposer.js", "/game/vendor/three-addons/postprocessing/RenderPass.js",

@@ -81,7 +81,8 @@ export function think(s, id, rand = Math.random, level = "normal") {
     if (grab) return steer(grab.dir);
   }
 
-  const enemies = s.players.filter((q) => q.alive && q.id !== id);
+  const team = (i) => s.cfg?.teams?.[i] ?? i;
+  const enemies = s.players.filter((q) => q.alive && team(q.id) !== team(id));
   const nearSoft = DIRS.some(([dx, dy]) => s.grid[idx(me.x + dx, me.y + dy)] === 2);
   const enemyInLine = enemies.some((q) => {
     const qx = Math.floor(q.x / T), qy = Math.floor(q.y / T);
