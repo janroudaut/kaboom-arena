@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Vibration test</title>
+<style>
+  body { margin: 0; padding: 16px; background: #14141f; color: #fff; font: 16px/1.5 system-ui, sans-serif; }
+  button { font: inherit; padding: 14px 18px; margin: 6px 6px 0 0; border: 0; border-radius: 10px; background: #3c7be8; color: #fff; font-weight: 700; }
+  pre { background: #0b0b12; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+  h1 { font-size: 20px; }
+</style>
+</head>
+<body>
+<h1>Vibration test</h1>
+<p>Tap each button. Longer buzzes are easier to feel than short ones. Copy the log below if you send it to someone.</p>
+<div>
+  <button data-p="50">50 ms</button>
+  <button data-p="150">150 ms</button>
+  <button data-p="400">400 ms</button>
+  <button data-p="1200">1200 ms</button>
+  <button data-p="200,100,200,100,400">Pattern</button>
+  <button data-p="0">Stop</button>
+</div>
+<pre id="log"></pre>
+<script>
+var log = document.getElementById('log');
+function line(s) { log.textContent += s + '\n'; }
+var n = navigator;
+line('vibrate in navigator: ' + ('vibrate' in n));
+line('secure context: ' + window.isSecureContext);
+line('user agent: ' + n.userAgent);
+line('visibility: ' + document.visibilityState);
+try { line('permissions policy allows vibrate: ' + (document.featurePolicy ? document.featurePolicy.allowsFeature('vibrate') : 'unknown')); } catch (e) { line('policy check failed: ' + e); }
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-p]');
+  if (!b) return;
+  var p = b.dataset.p.split(',').map(Number);
+  var arg = p.length === 1 ? p[0] : p;
+  var act = n.userActivation ? ('active=' + n.userActivation.isActive + ' sticky=' + n.userActivation.hasBeenActive) : 'userActivation: n/a';
+  var r;
+  try { r = n.vibrate ? n.vibrate(arg) : 'no vibrate()'; } catch (err) { r = 'threw ' + err; }
+  line('vibrate(' + JSON.stringify(arg) + ') -> ' + r + ' | ' + act);
+});
+</script>
+</body>
+</html>
