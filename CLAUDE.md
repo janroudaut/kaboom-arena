@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -44,6 +44,13 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - Time effects (hit-stop 80 ms, 0.35x slow-mo for the deciding kill) scale the local accumulator and run only in solo, local and story: never in host or guest, so determinism and tick rates are untouched (online only gets visual punches). Reduce motion or the Slow-mo setting turns them off; the announcer then shows a static fade.
 - Settings flagged `feel: true` render in the "Game feel" group (`#feelList`): Announcer, Slow-mo, Round recap. In-fight story lines live in `story.js` `fightLine(id, ev)`.
 - Known limit: chain-reaction order is not replayed, so kill credit can be off by one in rare chains; a sliding bomb that explodes is not attributed.
+
+## Extras in the sim (tiles, chaos, modes), opt-in via `newGame` opts
+- `tiles: "few" | "many"` adds `state.floor` (W*H codes: `ICE=1`, `CONV=2..5` = `CONV + dir`, `SPIKE=6`, `TELE=10+k` for pair k); spike phase is a pure function of `tick` (`spikeIn(s, i)`: 0 = deadly, 1..45 = telegraph, cycle 165 ticks). Ice momentum (`p.vx/vy`), conveyor drift and the frenzy speed boost live inside `movePlayer` so guest prediction stays exact; teleports (20 ticks armed), spike kills and conveyors moving bombs/items are host-only in `step`.
+- `chaos: true` schedules seeded events (`bombrain`, `itemrain`, `frenzy`, `quake`, `swap`) in `state.event = {type, t, ...}` with a 90-tick telegraph (`t` counts down; `tiles` or `a`/`b` show the targets; frenzy uses `on`).
+- `mode: "hill" | "potato" | "survival"` (forces sudden death off): `state.hill` (3x3 zone, relocation telegraph in `next`, goal 30 points or highest at 90 s), `state.potato` (`holder`, 10 s fuse, passes by touch with a global cooldown, owner -1 blast of range 3), `state.survival` (humans then 12 dormant enemy slots `dormant: true` on team 1, waves activate `1 + wave` enemies, cap 8 alive, round ends when every human is dead). Renderers/HUD must skip `p.dormant` and non-alive enemy slots; the main loop must call `think` for every player id.
+- Bots treat spikes as timed danger, never enter teleporters, avoid ice/conveyors in strict escape planning, flee bomb-rain bombs, head for the hill, chase or flee the potato holder, and hunt humans in survival. `extras.test.mjs` covers all of it, including prediction parity through ice, conveyors and frenzy.
+- `floor` is static: send it with the grid (like `g`) and keep it on the guest across snapshots.
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).

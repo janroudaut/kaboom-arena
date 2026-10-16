@@ -15,6 +15,20 @@ const LAYOUTS = {
 };
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 const CORNERS = [[1, 1], [W - 2, H - 2], [W - 2, 1], [1, H - 2]];
+const SPOTS = [...CORNERS, [7, 1], [7, H - 2], [1, 6], [W - 2, 6]];
+
+// Floor codes in s.floor (W*H): conveyors are CONV + direction index (0 up, 1 right, 2 down, 3 left); teleporters
+// are TELE + pair index, both ends of a pair share the code.
+export const ICE = 1, CONV = 2, SPIKE = 6, TELE = 10;
+export const SPIKE_CYCLE = 165, SPIKE_WARN = 90, SPIKE_ON = 135;
+export const TP_ARM = 20, TP_COOL = 60, CONV_SPEED = 0.5, CONV_BOMB_EVERY = 15, CONV_ITEM_EVERY = 20;
+export const TILES = { few: { ice: 1, conv: 1, pairs: 1, spikes: 2 }, many: { ice: 3, conv: 3, pairs: 2, spikes: 6 } };
+export const EVENTS = ["bombrain", "itemrain", "frenzy", "quake", "swap"];
+export const EVENT_WARN = 90, EVENT_FIRST = 600, FRENZY_TICKS = 600;
+export const MODES = ["classic", "hill", "potato", "survival"];
+export const HILL_EVERY = 900, HILL_WARN = 90, HILL_GOAL = 30, HILL_TIME = 5400;
+export const POTATO_TICKS = 600, POTATO_COOL = 60, POTATO_RANGE = 3;
+export const SURV_SLOTS = 12, SURV_CAP = 8, SURV_EVERY = 1200, SURV_SHIELD = 120;
 
 function mix(seed) {
   let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -35,6 +49,40 @@ const pickItem = (rand, powerups) => {
   return WEIGHTS.findIndex((w) => (r -= w) < 0);
 };
 
+const pickN = (r, list, n) => {
+  const a = list.slice(), out = [];
+  while (out.length < n && a.length) out.push(a.splice(Math.floor(r() * a.length), 1)[0]);
+  return out;
+};
+
+function makeFloor(grid, kind, spots, r) {
+  const floor = new Array(W * H).fill(0);
+  const ok = (x, y) => x > 0 && y > 0 && x < W - 1 && y < H - 1 && grid[y * W + x] === EMPTY && !floor[y * W + x]
+    && spots.every(([sx, sy]) => Math.abs(x - sx) + Math.abs(y - sy) > 2);
+  const all = () => grid.map((_, i) => i).filter((i) => ok(i % W, Math.floor(i / W)));
+  const run = (code, len, dir) => {
+    const [dx, dy] = DIRS[dir ?? Math.floor(r() * 4)], [start] = pickN(r, all(), 1);
+    if (start === undefined) return;
+    for (let k = 0, x = start % W, y = Math.floor(start / W); k < len && ok(x, y); k++, x += dx, y += dy) floor[y * W + x] = code;
+  };
+  const c = TILES[kind];
+  for (let k = 0; k < c.ice; k++) run(ICE, 3);
+  for (let k = 0; k < c.conv; k++) { const d = Math.floor(r() * 4); run(CONV + d, 3, d); }
+  for (let k = 0; k < c.pairs; k++) {
+    const [a] = pickN(r, all(), 1);
+    if (a === undefined) break;
+    floor[a] = TELE + k;
+    const far = all().filter((i) => Math.abs((i % W) - (a % W)) + Math.abs(Math.floor(i / W) - Math.floor(a / W)) >= 5);
+    const [b] = pickN(r, far.length ? far : all(), 1);
+    if (b === undefined) floor[a] = 0;
+    else floor[b] = TELE + k;
+  }
+  for (let k = 0; k < c.spikes; k++) { const [i] = pickN(r, all(), 1); if (i !== undefined) floor[i] = SPIKE; }
+  return floor;
+}
+
+// Opt-in extras (all resolved into cfg only when non-default, so the plain cfg is unchanged):
+// tiles "few"|"many" -> s.floor; chaos true -> s.event/s.evAt; mode "hill"|"potato"|"survival" -> s.hill/s.potato/s.survival.
 export function newGame(nPlayers, seed = Date.now(), opts = {}) {
   const cfg = {
     layout: LAYOUTS[opts.layout] ? opts.layout : "classic",
@@ -44,11 +92,23 @@ export function newGame(nPlayers, seed = Date.now(), opts = {}) {
     friendlyFire: opts.friendlyFire ?? true,
     suddenDeath: opts.suddenDeath ?? true,
   };
+  const mode = MODES.includes(opts.mode) ? opts.mode : "classic";
+  const tiles = TILES[opts.tiles] ? opts.tiles : null;
+  if (tiles) cfg.tiles = tiles;
+  if (opts.chaos) cfg.chaos = true;
+  if (mode !== "classic") { cfg.mode = mode; cfg.suddenDeath = false; }
+  if (mode === "survival") {
+    cfg.humans = nPlayers;
+    cfg.teams = [...new Array(nPlayers).fill(0), ...new Array(SURV_SLOTS).fill(1)];
+    cfg.friendlyFire = opts.friendlyFire ?? false;
+  }
   const rand = rng(seed);
   const grid = new Array(W * H).fill(EMPTY);
   const hidden = new Array(W * H).fill(-1);
   const spawns = CORNERS.slice(0, nPlayers);
-  const nearSpawn = (x, y) => spawns.some(([sx, sy]) => Math.abs(x - sx) + Math.abs(y - sy) <= 2);
+  const foes = mode === "survival" ? SPOTS.filter(([x, y]) => !spawns.some(([sx, sy]) => sx === x && sy === y)) : [];
+  const near = (list, d) => (x, y) => list.some(([sx, sy]) => Math.abs(x - sx) + Math.abs(y - sy) <= d);
+  const nearSpawn = (x, y) => near(spawns, 2)(x, y) || near(foes, 1)(x, y);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
@@ -59,12 +119,25 @@ export function newGame(nPlayers, seed = Date.now(), opts = {}) {
       }
     }
   }
-  const players = spawns.map(([x, y], id) => ({
+  const mk = (id, x, y) => ({
     id, x: x * T + T / 2, y: y * T + T / 2, alive: true,
     bombs: 1, range: 2, speed: 1, face: 2, walk: 0,
     kick: false, remote: false, pass: false, shield: 0, curse: null,
-  }));
-  return { tick: 0, grid, hidden, bombs: [], flames: [], items: [], players, sd: 0, end: -1, done: false, winner: -1, winnerTeam: -1, cfg, rs: Math.floor(rand() * 2 ** 31) };
+  });
+  const players = spawns.map(([x, y], id) => mk(id, x, y));
+  const s = { tick: 0, grid, hidden, bombs: [], flames: [], items: [], players, sd: 0, end: -1, done: false, winner: -1, winnerTeam: -1, cfg, rs: Math.floor(rand() * 2 ** 31) };
+  if (tiles) s.floor = makeFloor(grid, tiles, [...spawns, ...foes], rng(seed ^ 0x5bd1e995));
+  if (cfg.chaos) { s.event = null; s.evAt = EVENT_FIRST + Math.floor(rng(seed ^ 0x9e3779b9)() * 360); }
+  if (mode === "hill") {
+    const [x, y] = hillSpot(s);
+    s.hill = { x, y, t: HILL_EVERY, next: null, score: players.map(() => 0), acc: players.map(() => 0) };
+    s.score = s.hill.score;
+  } else if (mode === "potato") s.potato = { holder: Math.floor(roll(s) * nPlayers), t: POTATO_TICKS, cd: 0 };
+  else if (mode === "survival") {
+    for (let k = 0; k < SURV_SLOTS; k++) players.push({ ...mk(nPlayers + k, 0, 0), x: 0, y: 0, alive: false, dormant: true });
+    s.survival = { wave: 0, t: 0, next: 60 };
+  }
+  return s;
 }
 
 export function snapshot(s) {
@@ -92,11 +165,11 @@ function blocked(s, p, x, y) {
 }
 
 const curseIs = (p, type) => p.curse?.type === type;
-const speedOf = (p) => (curseIs(p, "slow") ? 0.5 : curseIs(p, "fast") ? 2.5 : p.speed);
+const frenzy = (s) => s.event?.type === "frenzy" && s.event.on > 0;
+const speedOf = (s, p) => (curseIs(p, "slow") ? 0.5 : curseIs(p, "fast") ? 2.5 : p.speed) * (frenzy(s) ? 1.5 : 1);
 const die = (p) => { p.alive = false; p.shield = 0; p.curse = null; };
 
-function move(s, p, dx, dy) {
-  const sp = speedOf(p);
+function move(s, p, dx, dy, sp) {
   const nx = p.x + dx * sp, ny = p.y + dy * sp;
   if (!blocked(s, p, nx, ny)) {
     p.x = nx; p.y = ny;
@@ -198,15 +271,24 @@ function explode(s, first) {
   }
 }
 
+// Pure in (grid, bombs, floor, event, p): the guest replays it for its own player. Ice momentum lives in p.vx/p.vy.
 export function movePlayer(s, p, dx, dy) {
-  if (!dx && !dy) return;
   if (curseIs(p, "reverse")) { dx = -dx; dy = -dy; }
-  // One axis at a time; horizontal wins on diagonals.
-  const mx = dx, my = dx ? 0 : dy;
-  p.face = mx ? (mx > 0 ? 1 : 3) : my > 0 ? 2 : 0;
-  const bx = p.x, by = p.y;
-  move(s, p, mx, my);
-  if (p.x !== bx || p.y !== by) p.walk++;
+  let mx = dx, my = dx ? 0 : dy;
+  const under = () => (s.floor ? s.floor[tileOf(p.y) * W + tileOf(p.x)] : 0);
+  const ice = under() === ICE;
+  if (ice) {
+    if (mx || my) { p.vx = mx; p.vy = my; } else { mx = p.vx || 0; my = p.vy || 0; }
+  } else if (p.vx || p.vy) p.vx = p.vy = 0;
+  if (mx || my) {
+    if (dx || dy) p.face = mx ? (mx > 0 ? 1 : 3) : my > 0 ? 2 : 0;
+    const bx = p.x, by = p.y;
+    move(s, p, mx, my, speedOf(s, p));
+    if (p.x !== bx || p.y !== by) p.walk++;
+    else if (ice) p.vx = p.vy = 0;
+  }
+  const c = under() - CONV;
+  if (c >= 0 && c < 4) move(s, p, DIRS[c][0], DIRS[c][1], CONV_SPEED);
 }
 
 export function placeBomb(s, p) {
@@ -258,15 +340,210 @@ function pickup(s, p, type) {
 
 const teamOf = (s, id) => s.cfg.teams?.[id] ?? id;
 
+const floorAt = (s, x, y) => s.floor[y * W + x];
+const inArena = (x, y) => x > 0 && y > 0 && x < W - 1 && y < H - 1;
+
+// Ticks until the spike on tile i becomes deadly (0 = deadly now); telegraph is the last SPIKE_ON - SPIKE_WARN ticks.
+export function spikeIn(s, i) {
+  const ph = (s.tick + i * 53) % SPIKE_CYCLE;
+  return ph >= SPIKE_ON ? 0 : SPIKE_ON - ph;
+}
+
+// Host-only: teleport arming and cooldown (the cooldown only runs while off the pad).
+function teleport(s, p) {
+  const tx = tileOf(p.x), ty = tileOf(p.y), f = floorAt(s, tx, ty);
+  if (f < TELE) { p.tp = 0; if (p.tpc > 0) p.tpc--; return; }
+  if (p.tpc > 0 || (p.tp = (p.tp | 0) + 1) < TP_ARM) return;
+  const here = ty * W + tx, there = s.floor.indexOf(f) === here ? s.floor.lastIndexOf(f) : s.floor.indexOf(f);
+  if (there === here || s.grid[there] !== EMPTY) return;
+  const ex = there % W, ey = Math.floor(there / W);
+  if (s.bombs.some((b) => b.x === ex && b.y === ey)) return;
+  p.x = ex * T + T / 2; p.y = ey * T + T / 2;
+  p.tp = 0; p.tpc = TP_COOL; p.vx = p.vy = 0;
+}
+
+// Host-only: conveyors carry resting bombs and items.
+function carry(s) {
+  for (const b of s.bombs) {
+    if (b.dx || b.dy) continue;
+    const c = floorAt(s, b.x, b.y) - CONV;
+    if (c < 0 || c > 3) { b.cv = 0; continue; }
+    if ((b.cv = (b.cv | 0) + 1) < CONV_BOMB_EVERY) continue;
+    b.cv = 0;
+    const x = b.x + DIRS[c][0], y = b.y + DIRS[c][1];
+    if (stopsBomb(s, x, y)) continue;
+    b.x = x; b.y = y;
+    if (s.flames.some((f) => f.x === x && f.y === y)) b.t = 1;
+  }
+  if (s.tick % CONV_ITEM_EVERY) return;
+  for (const it of s.items) {
+    const c = floorAt(s, it.x, it.y) - CONV;
+    if (c < 0 || c > 3) continue;
+    const x = it.x + DIRS[c][0], y = it.y + DIRS[c][1];
+    if (s.grid[y * W + x] === EMPTY && !s.items.some((o) => o.x === x && o.y === y)) { it.x = x; it.y = y; }
+  }
+}
+
+const gap = (s) => 720 + Math.floor(roll(s) * 480);
+const isSpot = (x, y) => SPOTS.some(([sx, sy]) => sx === x && sy === y);
+const emptyTiles = (s) => s.grid.map((_, i) => i).filter((i) => {
+  const x = i % W, y = Math.floor(i / W);
+  return s.grid[i] === EMPTY && !isSpot(x, y) && !s.bombs.some((b) => b.x === x && b.y === y);
+});
+
+// Host-only chaos scheduler. event.t counts down the telegraph; frenzy then runs on event.on.
+function chaos(s) {
+  const e = s.event;
+  if (!e) {
+    if (s.tick < s.evAt || s.end >= 0) return;
+    const alive = s.players.filter((p) => p.alive);
+    const types = EVENTS.filter((k) => (k !== "swap" || alive.length >= 2) && (k !== "quake" || s.grid.includes(SOFT)));
+    const type = types[Math.floor(roll(s) * types.length)];
+    const ev = { type, t: EVENT_WARN };
+    const r = () => roll(s);
+    if (type === "bombrain" || type === "itemrain") ev.tiles = pickN(r, emptyTiles(s), 4 + Math.floor(r() * 3)).map((i) => [i % W, Math.floor(i / W)]);
+    else if (type === "quake") ev.tiles = pickN(r, s.grid.map((g, i) => (g === SOFT ? i : -1)).filter((i) => i >= 0), 5).map((i) => [i % W, Math.floor(i / W)]);
+    else if (type === "swap") [ev.a, ev.b] = pickN(r, alive, 2).map((p) => p.id);
+    s.event = ev;
+    return;
+  }
+  if (e.on) {
+    if (--e.on <= 0) { s.event = null; s.evAt = s.tick + gap(s); }
+    return;
+  }
+  if (--e.t > 0) return;
+  if (e.type === "frenzy") { e.on = FRENZY_TICKS; return; }
+  const free = ([x, y]) => s.grid[y * W + x] === EMPTY && !s.bombs.some((b) => b.x === x && b.y === y);
+  if (e.type === "bombrain") {
+    for (const [x, y] of e.tiles.filter(free)) {
+      if (!s.players.some((p) => p.alive && overlaps(p, x, y))) s.bombs.push({ x, y, owner: -1, t: FUSE, range: 2, pass: [] });
+    }
+  } else if (e.type === "itemrain") {
+    for (const [x, y] of e.tiles.filter(free)) {
+      if (!s.items.some((it) => it.x === x && it.y === y)) s.items.push({ x, y, type: pickItem(() => roll(s), s.cfg.powerups) });
+    }
+  } else if (e.type === "quake") {
+    for (const [x, y] of e.tiles) {
+      const i = y * W + x;
+      if (s.grid[i] !== SOFT) continue;
+      s.grid[i] = EMPTY;
+      if (s.hidden[i] >= 0) s.items.push({ x, y, type: s.hidden[i] });
+    }
+  } else if (e.type === "swap") {
+    const a = s.players[e.a], b = s.players[e.b];
+    const risky = (p) => s.flames.some((f) => f.x === tileOf(p.x) && f.y === tileOf(p.y)) || s.bombs.some((q) => overlaps(p, q.x, q.y));
+    if (a.alive && b.alive && !risky(a) && !risky(b)) {
+      [a.x, b.x] = [b.x, a.x];
+      [a.y, b.y] = [b.y, a.y];
+      a.vx = a.vy = b.vx = b.vy = 0;
+    }
+  }
+  s.event = null;
+  s.evAt = s.tick + gap(s);
+}
+
+// Hill centre: a non-hard tile away from the current one; the 3x3 around it may include walls.
+function hillSpot(s, from) {
+  const ok = (x, y) => s.grid[y * W + x] !== HARD && (!s.floor || floorAt(s, x, y) < SPIKE || floorAt(s, x, y) === ICE);
+  const all = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (ok(x, y)) all.push([x, y]);
+  const far = from ? all.filter(([x, y]) => Math.abs(x - from.x) + Math.abs(y - from.y) >= 4) : all;
+  const list = far.length ? far : all;
+  return list[Math.floor(roll(s) * list.length)];
+}
+
+const inHill = (h, p) => Math.abs(tileOf(p.x) - h.x) <= 1 && Math.abs(tileOf(p.y) - h.y) <= 1;
+
+function hillTick(s) {
+  const h = s.hill;
+  if (--h.t <= 0) {
+    [h.x, h.y] = h.next ?? hillSpot(s, h);
+    h.next = null;
+    h.t = HILL_EVERY;
+  } else if (h.t === HILL_WARN) h.next = hillSpot(s, h);
+  const inside = s.players.filter((p) => p.alive && inHill(h, p));
+  if (inside.length === 1 && ++h.acc[inside[0].id] >= 60) { h.acc[inside[0].id] = 0; h.score[inside[0].id]++; }
+}
+
+function potatoTick(s) {
+  const po = s.potato, alive = s.players.filter((p) => p.alive);
+  if (alive.length < 2) return;
+  let h = s.players[po.holder];
+  if (!h.alive) {
+    po.holder = alive[Math.floor(roll(s) * alive.length)].id;
+    po.t = POTATO_TICKS;
+    return;
+  }
+  if (po.cd > 0) po.cd--;
+  else {
+    const hx = tileOf(h.x), hy = tileOf(h.y);
+    const near = alive.filter((q) => q !== h && Math.abs(tileOf(q.x) - hx) + Math.abs(tileOf(q.y) - hy) <= 1);
+    if (near.length) { po.holder = near[0].id; po.cd = POTATO_COOL; }
+  }
+  if (--po.t > 0) return;
+  h = s.players[po.holder];
+  s.bombs.push({ x: tileOf(h.x), y: tileOf(h.y), owner: -1, t: 1, range: POTATO_RANGE, pass: [] });
+  die(h);
+  const left = alive.filter((q) => q !== h);
+  po.holder = left[Math.floor(roll(s) * left.length)].id;
+  po.t = POTATO_TICKS;
+  po.cd = POTATO_COOL;
+}
+
+function waveTick(s) {
+  const sv = s.survival, n = s.cfg.humans;
+  sv.t++;
+  const foes = s.players.filter((p) => p.id >= n && p.alive);
+  if (!foes.length && sv.next > 60) sv.next = 60;
+  if (--sv.next > 0) return;
+  sv.wave++;
+  sv.next = SURV_EVERY;
+  const humans = s.players.slice(0, n).filter((p) => p.alive);
+  const slots = s.players.filter((p) => p.id >= n && !p.alive).sort((a, b) => b.dormant - a.dormant || a.id - b.id);
+  let spots = SPOTS.filter(([x, y]) => s.grid[y * W + x] === EMPTY
+    && humans.every((p) => Math.abs(tileOf(p.x) - x) + Math.abs(tileOf(p.y) - y) >= 5)
+    && foes.every((p) => Math.abs(tileOf(p.x) - x) + Math.abs(tileOf(p.y) - y) >= 2));
+  for (let k = Math.min(1 + sv.wave, SURV_CAP - foes.length, slots.length); k > 0 && spots.length; k--) {
+    const [x, y] = spots.splice(Math.floor(roll(s) * spots.length), 1)[0], p = slots.shift();
+    Object.assign(p, { x: x * T + T / 2, y: y * T + T / 2, alive: true, dormant: false, bombs: 1, range: 2, speed: 1, face: 2, walk: 0,
+      kick: false, remote: false, pass: false, shield: SURV_SHIELD, curse: null, vx: 0, vy: 0, tp: 0, tpc: 0 });
+  }
+}
+
+function endCheck(s) {
+  const alive = s.players.filter((p) => p.alive), mode = s.cfg.mode;
+  let w = null;
+  if (mode === "survival") {
+    if (!s.players.slice(0, s.cfg.humans).some((p) => p.alive)) w = [-1, 1];
+  } else {
+    if (mode === "hill") {
+      const sc = s.hill.score, top = Math.max(...sc);
+      if (top >= HILL_GOAL || s.tick >= HILL_TIME) {
+        const id = sc.indexOf(top) === sc.lastIndexOf(top) ? sc.indexOf(top) : -1;
+        w = [id, id >= 0 && s.cfg.teams ? teamOf(s, id) : -1];
+      }
+    }
+    if (!w && new Set(alive.map((p) => teamOf(s, p.id))).size <= 1) {
+      w = [alive.length ? alive[0].id : -1, alive.length && s.cfg.teams ? teamOf(s, alive[0].id) : -1];
+    }
+  }
+  if (w) { s.end = END_DELAY; [s.winner, s.winnerTeam] = w; }
+}
+
 export function step(s, inputs) {
   if (s.done) return;
   s.tick++;
   if (s.tick >= SUDDEN && s.tick % SUDDEN_EVERY === 0 && s.cfg.suddenDeath) closeIn(s);
+  if (s.cfg.chaos) chaos(s);
+  if (s.hill) hillTick(s);
+  else if (s.potato) potatoTick(s);
+  else if (s.survival) waveTick(s);
 
   for (const p of s.players) {
     if (!p.alive) continue;
     const inp = inputs[p.id] || {};
     movePlayer(s, p, inp.dx || 0, inp.dy || 0);
+    if (s.floor) teleport(s, p);
     if (p.kick && (inp.dx || inp.dy)) {
       const sign = curseIs(p, "reverse") ? -1 : 1;
       kick(s, p, inp.dx ? sign * inp.dx : 0, inp.dx ? 0 : sign * inp.dy);
@@ -284,6 +561,7 @@ export function step(s, inputs) {
   }
 
   for (const b of s.bombs) if (b.dx || b.dy) slide(s, b);
+  if (s.floor) carry(s);
   for (const b of s.bombs) {
     b.pass = b.pass.filter((id) => {
       const q = s.players[id];
@@ -301,13 +579,13 @@ export function step(s, inputs) {
   for (const p of s.players) {
     if (p.alive && !p.shield && s.flames.some((f) => hurts(f, p))) die(p);
   }
-
-  if (s.end < 0) {
-    const alive = s.players.filter((p) => p.alive);
-    if (new Set(alive.map((p) => teamOf(s, p.id))).size <= 1) {
-      s.end = END_DELAY;
-      s.winner = alive.length ? alive[0].id : -1;
-      s.winnerTeam = alive.length && s.cfg.teams ? teamOf(s, alive[0].id) : -1;
+  if (s.floor) {
+    for (const p of s.players) {
+      const i = tileOf(p.y) * W + tileOf(p.x);
+      if (p.alive && !p.shield && s.floor[i] === SPIKE && !spikeIn(s, i)) die(p);
     }
-  } else if (--s.end <= 0) s.done = true;
+  }
+
+  if (s.end < 0) endCheck(s);
+  else if (--s.end <= 0) s.done = true;
 }
