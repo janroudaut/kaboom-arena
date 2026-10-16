@@ -1,19 +1,21 @@
 // Pure: backends are injected. vib = phone pattern (ms, on/off alternating), rum = [duration ms, strong, weak] for gamepads, gap = min ms between two firings.
 const KINDS = {
-  bomb: { vib: [8], rum: [30, 0, 0.3], gap: 120 },
-  item: { vib: [18], rum: [50, 0, 0.5], gap: 100 },
-  blast: { vib: [35], rum: [110, 0.7, 0.4], gap: 250 },
+  bomb: { vib: [25], rum: [30, 0, 0.3], gap: 120 },
+  item: { vib: [30], rum: [50, 0, 0.5], gap: 100 },
+  blast: { vib: [50], rum: [110, 0.7, 0.4], gap: 250 },
   curse: { vib: [30, 40, 30, 40, 60], rum: [220, 0.4, 0.8], gap: 800 },
   die: { vib: [260], rum: [500, 1, 0.6], gap: 1500 },
   win: { vib: [40, 60, 40, 60, 140], rum: [380, 0.5, 0.5], gap: 3000 },
   test: { vib: [60, 80, 60], rum: [300, 0.6, 0.6], gap: 0 },
 };
+// Android motors ignore pulses much shorter than ~20 ms.
+const MIN_PULSE = 20;
 const LEVEL = { low: 0.6, normal: 1, strong: 1.6 };
 
 export const effect = (kind, intensity, scale = 1) => {
   const k = KINDS[kind], f = (LEVEL[intensity] ?? 1) * scale, [d, strong, weak] = k.rum;
   return {
-    vib: k.vib.map((v, i) => (i % 2 ? v : Math.max(1, Math.round(v * f)))),
+    vib: k.vib.map((v, i) => (i % 2 ? v : Math.max(MIN_PULSE, Math.round(v * f)))),
     rum: { duration: Math.round(d * Math.min(f, 1.6)), strongMagnitude: Math.min(1, strong * f), weakMagnitude: Math.min(1, weak * f) },
   };
 };
@@ -42,8 +44,15 @@ export function createHaptics({ vibrate, rumble, settings, now = () => performan
 }
 
 export const browserVibrate = (pattern) => {
-  try { globalThis.navigator?.vibrate?.(pattern); } catch {}
+  try { return !!globalThis.navigator?.vibrate?.(pattern); } catch { return false; }
 };
+
+// What a "Test vibration" tap can tell the user: null = nothing was sent.
+export const vibrationReport = (sent) =>
+  !globalThis.navigator?.vibrate ? "This browser has no vibration support (iPhone and iPad never do)."
+    : sent === null ? "Phone vibration is switched off above."
+    : sent ? "Sent. If you feel nothing, check the phone: touch/vibration feedback on, battery saver off, silent and Do Not Disturb off."
+    : "The browser refused it. Tap the screen once, then try again.";
 
 export const browserRumble = (name, { duration, strongMagnitude, weakMagnitude }) => {
   try {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHaptics, effect, observe, browserVibrate, browserRumble } from "./haptics.js";
+import { createHaptics, effect, observe, browserVibrate, browserRumble, vibrationReport } from "./haptics.js";
 import { newGame, step, placeBomb } from "./sim.js";
 
 const ALL = { vibrate: true, rumble: true, intensity: "normal" };
@@ -106,4 +106,21 @@ test("observe: new round (tick going back) emits nothing", () => {
   const b = newGame(2, 2);
   b.players[0].alive = false;
   assert.deepEqual(observe(mem, b), []);
+});
+
+test("phone pulses are never shorter than what Android motors can render, and the report explains each case", () => {
+  for (const kind of ["bomb", "item", "blast", "curse", "die", "win", "test"]) {
+    for (const level of ["low", "normal", "strong"]) {
+      const { vib } = effect(kind, level);
+      vib.forEach((v, i) => { if (i % 2 === 0) assert.ok(v >= 20, `${kind}/${level} pulse ${v}`); });
+    }
+  }
+  const nav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true });
+  assert.match(vibrationReport(true), /no vibration support/);
+  Object.defineProperty(globalThis, "navigator", { value: { vibrate: () => true }, configurable: true });
+  assert.match(vibrationReport(null), /switched off/);
+  assert.match(vibrationReport(true), /Sent/);
+  assert.match(vibrationReport(false), /refused/);
+  if (nav) Object.defineProperty(globalThis, "navigator", nav); else delete globalThis.navigator;
 });

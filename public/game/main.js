@@ -7,7 +7,7 @@ import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } fr
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
 import { teamInfo, view, setSuits, palette } from "./look.js";
 import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts, reduced } from "./settings.js";
-import { createHaptics, browserVibrate, browserRumble, observe } from "./haptics.js";
+import { createHaptics, browserVibrate, browserRumble, observe, vibrationReport } from "./haptics.js";
 import { setStill } from "./home.js";
 import { initHelp, initInstall, watchUpdates } from "./ux.js";
 import { createStoryUI } from "./storyui.js";
@@ -28,7 +28,8 @@ const RECONNECT_MS = 30000;
 const PNUM = [1, 2, 3, 4].map((i) => `P${i}`);
 let settings = loadSettings();
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
-const haptics = createHaptics({ vibrate: browserVibrate, rumble: browserRumble, settings: () => settings });
+let vibSent = null;
+const haptics = createHaptics({ vibrate: (p) => (vibSent = browserVibrate(p)), rumble: browserRumble, settings: () => settings });
 let feel = {};
 const fd = createDirector();
 let clock = 0, ts = 1, still = false, recapOn = false, recapOff = false;
@@ -640,7 +641,9 @@ $("settingsBtn").onclick = () => { markSettings(); show("settings"); $("setBack"
 $("setBack").onclick = () => show("menu");
 $("setReset").onclick = () => { settings = { ...DEFAULTS }; saveSettings(settings); markSettings(); applyLook(); };
 $("vibTest").onclick = () => {
+  vibSent = null;
   haptics.fire("test", { phone: true, pads: Object.keys(sources).filter((n) => n.startsWith("pad")) });
+  $("vibStatus").textContent = vibrationReport(vibSent);
 };
 addEventListener("keydown", (e) => e.code === "Escape" && $("settings").classList.contains("on") && show("menu"));
 
