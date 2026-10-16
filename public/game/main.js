@@ -691,7 +691,9 @@ function loop(now) {
 requestAnimationFrame(loop);
 
 applyLook();
-watchUpdates();
+const sw = watchUpdates(() => settings.offline, (r) => {
+  $("offStatus").textContent = !settings.offline ? "" : r.failed ? `${r.failed} of ${r.total} files could not be saved: toggle the setting to retry.` : "Everything is saved: the game works offline.";
+});
 initInstall();
 help = initHelp([$("helpBtn"), $("pauseHelp")], { open: () => nav.open("help"), close: () => nav.close("help") });
 
@@ -720,10 +722,10 @@ for (const f of FIELDS) {
     const b = Object.assign(document.createElement("button"), { textContent: text });
     b.setAttribute("role", "radio");
     b.dataset.v = JSON.stringify(v);
-    b.onclick = () => { settings[f.key] = v; saveSettings(settings); markSettings(); applyLook(); };
+    b.onclick = () => { settings[f.key] = v; saveSettings(settings); if (f.key === "offline") { $("offStatus").textContent = v ? "Saving files..." : ""; if (v) sw.ask(); } markSettings(); applyLook(); };
     seg.append(b);
   }
-  $(f.a11y ? "a11yList" : f.feel ? "feelList" : "setList").append(label, seg);
+  $(f.a11y ? "a11yList" : f.feel ? "feelList" : f.store ? "offList" : "setList").append(label, seg);
 }
 $("settingsBtn").onclick = () => { markSettings(); show("settings"); $("setBack").focus(); };
 $("setBack").onclick = () => show("menu");

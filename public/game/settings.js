@@ -26,9 +26,10 @@ export const FIELDS = [
   { key: "vibrate", label: "Phone vibration", opts: ON_OFF, a11y: true },
   { key: "rumble", label: "Gamepad rumble", opts: ON_OFF, a11y: true },
   { key: "intensity", label: "Vibration intensity", opts: [["low", "Low"], ["normal", "Normal"], ["strong", "Strong"]], a11y: true },
+  { key: "offline", label: "Keep the whole game offline", opts: ON_OFF.slice().reverse(), store: true },
 ];
 
-export const DEFAULTS = { bot: "normal", mode: "classic", tiles: "off", chaos: false, rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal", announcer: true, slowmo: true, recap: true };
+export const DEFAULTS = { bot: "normal", mode: "classic", tiles: "off", chaos: false, rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal", offline: false, announcer: true, slowmo: true, recap: true };
 
 export const reduced = (set, system) => (set.reduce === "auto" ? !!system : set.reduce);
 

@@ -65,18 +65,30 @@ export function initInstall() {
   };
 }
 
-export function watchUpdates() {
-  if (!("serviceWorker" in navigator)) return;
+export function watchUpdates(wantsOffline, onCache) {
+  const ask = () => navigator.serviceWorker?.ready.then((r) => r.active?.postMessage({ t: "precache" })).catch(() => {});
+  if (!("serviceWorker" in navigator)) return { ask };
   const toast = $("toast");
   $("toastReload").onclick = () => location.reload();
   $("toastClose").onclick = () => (toast.hidden = true);
+  let waiting = false;
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if (e.data?.t !== "precached") return;
+    onCache(e.data);
+    if (waiting) toast.hidden = false;
+  });
   navigator.serviceWorker.register("/sw.js").then((reg) => {
+    if (wantsOffline()) ask();
+    reg.update().catch(() => {});
     reg.addEventListener("updatefound", () => {
       const w = reg.installing;
       w?.addEventListener("statechange", () => {
-        if (w.state === "installed" && navigator.serviceWorker.controller) toast.hidden = false;
+        if (!navigator.serviceWorker.controller) return;
+        if (!wantsOffline()) { if (w.state === "installed") toast.hidden = false; return; }
+        if (w.state === "activated") { waiting = true; ask(); }
       });
     });
     document.addEventListener("visibilitychange", () => document.hidden || reg.update().catch(() => {}));
   }).catch(() => {});
+  return { ask };
 }

@@ -15,6 +15,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - `input.js` ignores the game keys when a button outside `#game` has focus, so menu buttons stay keyboard-operable; `main.js` wraps `draw` in try/catch so one bad frame never stops the render loop.
 - Home screen background is a live bot match (`home.js`), throttled on purpose (CPU is a first-class constraint).
 - `cable.yml` uses the `async` adapter: a single Puma process only (never `WEB_CONCURRENCY` > 1), otherwise switch to Solid Cable or Redis.
+- Setting `offline` (store group): asks the service worker (`{t:"precache"}` message, reply `precached`) to cache every missing file in `FILES`, lazy ones included. `ux.js` `watchUpdates` calls `reg.update()` at load and on tab focus; with `offline` on, a new worker precaches itself once active and the update toast only shows after that, so one Reload is enough.
 - `public/sw.js`: hand-written precache list, add every new file to it and bump the cache name. It is network-first (cache is for offline only): stale-while-revalidate served a mix of old and new ES modules and broke inputs.
 
 ## Match settings and themes
