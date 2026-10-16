@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs determinism.test.mjs specials.test.mjs replay.test.mjs daily.test.mjs sharecard.test.mjs emote.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test *.test.mjs`; relay: `ruby -Itest test/room_registry_test.rb` and `bundle exec ruby -Itest test/connection_limits_test.rb`.
 - UI and code are in English, no i18n.
 
 ## Architecture
