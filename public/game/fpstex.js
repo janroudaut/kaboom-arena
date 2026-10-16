@@ -199,3 +199,60 @@ export function bigBombTex() {
     p.rect(17, 3, 3, 6, 4); p.rect(16, 0, 5, 4, 5); p.rect(17, 1, 2, 2, 6);
   });
 }
+
+// Floor overlays: 32x32 ABGR textures (alpha 0 = show the ground). Kinds: 1 ice, 2..5 conveyor (CONV + dir, drawn
+// pointing up with a 16 px period, rotated at sampling), 6..8 spike phase 0..2, 9..12 teleporter pair, 13 hill, 14 hill contested, 15 next hill.
+export const OV_ICE = 1, OV_CONV = 2, OV_SPIKE = 6, OV_TELE = 9, OV_HILL = 13, OV_HOT = 14, OV_NEXT = 15, OV_N = 16;
+export function floorOverlays(F) {
+  const mk = (draw) => {
+    const t = new Uint32Array(1024);
+    draw((x, y, c, a = 255) => { if (x >= 0 && y >= 0 && x < 32 && y < 32) t[y * 32 + x] = rgba(c, a); }, t);
+    return t;
+  };
+  const out = new Array(OV_N).fill(null);
+  out[OV_ICE] = mk((d) => {
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+      const e = x < 1 || y < 1 || x > 30 || y > 30, s = (x + y) % 24;
+      d(x, y, e ? F.ice.lo : s < 2 ? F.ice.hi : s < 4 ? mixHex(F.ice.base, F.ice.hi, 0.5) : F.ice.base, 235);
+    }
+  });
+  for (let k = 0; k < 4; k++) out[OV_CONV + k] = mk((d) => {
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+      const line = 5 + Math.abs(x - 15.5) * 0.55, a = (((y % 16) - line) % 16 + 16) % 16;
+      d(x, y, a < 3.5 && x > 3 && x < 28 ? F.conv.arrow : x < 3 || x > 28 ? F.conv.edge : F.conv.base);
+    }
+  });
+  const tips = [[8, 8], [24, 8], [8, 24], [24, 24]];
+  for (let ph = 0; ph < 3; ph++) out[OV_SPIKE + ph] = mk((d) => {
+    const plate = ph === 2 ? mixHex(F.spike.plate, F.spike.hot, 0.35) : ph === 1 ? mixHex(F.spike.plate, F.spike.warn, 0.3) : F.spike.plate;
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) d(x, y, x < 1 || y < 1 || x > 30 || y > 30 ? F.spike.tip : plate);
+    const r = [1.2, 2.6, 4.2][ph], col = [F.spike.tip, F.spike.warn, F.spike.hot][ph];
+    for (const [cx, cy] of tips) for (let y = cy - 5; y <= cy + 5; y++) for (let x = cx - 5; x <= cx + 5; x++) {
+      const q = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+      if (q <= r) d(x, y, q > r - 1 && ph > 0 ? "#ffffff" : col);
+    }
+  });
+  F.tele.forEach((col, k) => {
+    out[OV_TELE + k] = mk((d) => {
+      for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+        const q = Math.hypot(x + 0.5 - 16, y + 0.5 - 16);
+        if (q <= 14.5) d(x, y, "#000000", 120);
+        for (let i = 0; i <= k; i++) if (Math.abs(q - (13 - i * 3.5)) < 0.9) d(x, y, col);
+        if (q < 1.8) d(x, y, col);
+      }
+    });
+  });
+  const zone = (fill, edge, dash) => mk((d) => {
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+      const e = x < 2 || y < 2 || x > 29 || y > 29;
+      if (e && (!dash || ((x + y) >> 2) & 1)) d(x, y, edge, 230);
+      else if (!e) d(x, y, fill, ((x >> 1) + (y >> 1)) & 1 ? 70 : 48);
+    }
+  });
+  out[OV_HILL] = zone(F.hill, F.hill, false);
+  out[OV_HOT] = zone("#e8453c", "#e8453c", false);
+  out[OV_NEXT] = zone(F.next, F.next, true);
+  return out;
+}
+
+export const columnTex = (col) => tex(8, 32, [rgba(col, 60), rgba(col, 170)], (p) => { p.rect(0, 0, 8, 32, 1); p.rect(0, 0, 1, 32, 2); p.rect(7, 0, 1, 32, 2); p.rect(0, 0, 8, 1, 2); });

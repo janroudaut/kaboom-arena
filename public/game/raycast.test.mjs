@@ -116,3 +116,15 @@ test("angDiff takes the short way round", () => {
   assert.ok(Math.abs(angDiff(0, 3 * Math.PI / 2) + Math.PI / 2) < 1e-12);
   assert.ok(Math.abs(angDiff(5 * Math.PI, 0) - Math.PI) < 1e-9 || Math.abs(angDiff(5 * Math.PI, 0) + Math.PI) < 1e-9);
 });
+
+test("floor overlays: every kind is a 32x32 texture with ground showing through where expected", async () => {
+  const X = await import("./fpstex.js"), { FLOORC } = await import("./look.js");
+  const ov = X.floorOverlays(FLOORC);
+  assert.equal(ov.length, X.OV_N);
+  for (let k = 1; k < X.OV_N; k++) assert.equal(ov[k].length, 1024, `kind ${k}`);
+  assert.ok(ov[X.OV_TELE][0] >>> 24 === 0, "teleporter corners are transparent");
+  assert.ok(ov[X.OV_ICE].every((p) => p >>> 24 > 0), "ice covers the tile");
+  const lit = (t) => t.reduce((n, p) => n + (p >>> 24 === 255), 0);
+  assert.ok(lit(ov[X.OV_TELE + 3]) > lit(ov[X.OV_TELE]), "later pairs have more rings");
+  assert.notDeepEqual(ov[X.OV_SPIKE], ov[X.OV_SPIKE + 2]);
+});

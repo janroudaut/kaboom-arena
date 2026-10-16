@@ -1,11 +1,11 @@
 // "Bomber Shooter": first-person raycast renderer. Same game state as the other renderers (a pure view).
 // Low-res ImageData (reused), CSS pixelated upscale, no per-frame allocation in the 3D pass, nothing runs unless draw() is called.
-import { W as GW, H as GH, T, SUDDEN, B_MINE, FLY_TICKS } from "./sim.js";
+import { W as GW, H as GH, T, SUDDEN, B_MINE, FLY_TICKS, SPIKE, TELE, POTATO_TICKS } from "./sim.js";
 import { placeBubble } from "./director.js";
 import { EMOTES, emoteLook } from "./emote.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, mineSeen, abilityInfo, heldBombs } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, mineSeen, abilityInfo, heldBombs, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText } from "./look.js";
 import { ICONS } from "./render.js";
-import { cast, newRay, OX, OY, DX, DY, T as RT, SIDE, TILE, U, texU, planeOf, project, angDiff } from "./raycast.js";
+import { cast, newRay, OX, OY, DX, DY, T as RT, SIDE, TILE, CELL, U, texU, planeOf, project, angDiff } from "./raycast.js";
 import { fps } from "./fpsinput.js";
 import * as X from "./fpstex.js";
 
@@ -27,7 +27,7 @@ export function createRendererFps(canvas) {
   const hit = newRay(), pl = { x: 0.5, y: 0.5 }, pr = new Float64Array(2), spot = { x: 0.5, y: 0.5, tail: true };
   const sh = new Uint32Array(256);
   let fogR = 0, fogG = 0, fogB = 0, fogPack = 0, ceilRgb = [0, 0, 0];
-  let thKey = "", T_ = null, palRef = null, P_ = null;
+  let thKey = "", T_ = null, palRef = null, P_ = null, F_ = null;
   const ringCache = new Map(), portraits = new Map(), faceCache = new Map(), digits = [0, 1, 2, 3].map(X.digitTex);
   const items = ICONS.map(X.fromCanvas);
   const shadow = X.shadowTex(), bigBomb = X.toCanvas(X.bigBombTex());
@@ -36,6 +36,11 @@ export function createRendererFps(canvas) {
   const frost = X.auraTex(X.rgba("#9ee0ff", 120), X.rgba("#ffffff", 220));
   const shield = [X.auraTex(X.rgba("#5adcff", 72), X.rgba("#c8f8ff", 200)), X.auraTex(X.rgba("#5adcff", 26), X.rgba("#c8f8ff", 110))];
   const curse = X.auraTex(X.rgba("#be3cff", 80), X.rgba("#dc8cff", 180));
+  const hotAura = [FLOORC.potato, "#ff3b30"].map((col) => X.auraTex(X.rgba(col, 90), X.rgba(col, 220)));
+  const colCache = new Map(), teleCols = FLOORC.tele.map(X.columnTex);
+  const OVT = X.floorOverlays(FLOORC).map((t) => t && new Int32Array(t.buffer));
+  const ov = new Uint8Array(GW * GH), qk = new Uint8Array(GW * GH), shI = new Int32Array(sh.buffer);
+  let nOv = 0, nQk = 0, convOff = 0;
 
   // sprite list (preallocated)
   const sTex = new Array(MAXS), sDepth = new Float32Array(MAXS), sSX = new Float32Array(MAXS), sW = new Float32Array(MAXS), sH = new Float32Array(MAXS), sZ = new Float32Array(MAXS), sFull = new Uint8Array(MAXS), ord = new Uint16Array(MAXS);
@@ -76,6 +81,8 @@ export function createRendererFps(canvas) {
   function setPalette(pal) {
     palRef = pal;
     const mk = (i, back, f) => X.playerTex(pal.suit[i], pal.dark[i], back, f);
+    const fl = foeLook();
+    F_ = [0, 1, 2, 3].map((k) => X.playerTex(fl.suit, fl.dark, k >> 1, k & 1));
     P_ = { body: [0, 1, 2, 3].map((i) => [mk(i, 0, 0), mk(i, 0, 1), mk(i, 1, 0), mk(i, 1, 1)]), hand: [0, 1, 2, 3].map((i) => X.toCanvas(X.handTex(pal.suit[i], pal.dark[i]))) };
     faceCache.clear();
   }
@@ -127,8 +134,58 @@ export function createRendererFps(canvas) {
       if (y0 < 0) y0 = 0;
       if (y1 > vh) y1 = vh;
       shadePal(tp, side ? (light(t) * FACE_DARK256) >> 8 : light(t));
+      if (nQk && qk[hit[CELL] | 0]) for (let i = 1; i < tp.n; i++) { const p = sh[i]; sh[i] = (p & 0xff000000) | ((((p >> 16 & 255) + 3 * 170) >> 2) << 16) | ((((p >> 8 & 255) + 3 * 236) >> 2) << 8) | (((p & 255) + 3 * 255) >> 2); }
       const base = tx * 32, idx = tp.idx;
       for (let y = y0, o = y0 * cw + x; y < y1; y++, o += cw) { buf[o] = sh[idx[base + ((pos | 0) & 31)]]; pos += step; }
+    }
+  }
+
+  function overlayPx(k, u, v, base, f, g) {
+    let su = u, sv = v;
+    if (k >= 2 && k <= 5) {
+      if (k === 2) sv = (v + convOff) & 31;
+      else if (k === 4) sv = (31 - v + convOff) & 31;
+      else if (k === 3) { su = v; sv = (31 - u + convOff) & 31; }
+      else { su = 31 - v; sv = (u + convOff) & 31; }
+    }
+    const q = OVT[k][(sv << 5) | su], a = q >>> 24;
+    if (!a) return base;
+    let r = (q & 255), gg = (q >> 8 & 255), b = (q >> 16 & 255);
+    r = (r * f + fogR * g) >> 8; gg = (gg * f + fogG * g) >> 8; b = (b * f + fogB * g) >> 8;
+    if (a !== 255) {
+      r = (((r - (base & 255)) * a) >> 8) + (base & 255);
+      gg = (((gg - (base >> 8 & 255)) * a) >> 8) + (base >> 8 & 255);
+      b = (((b - (base >> 16 & 255)) * a) >> 8) + (base >> 16 & 255);
+    }
+    return 0xff000000 | (b << 16) | (gg << 8) | r;
+  }
+
+  function buildOv(s) {
+    nOv = nQk = 0;
+    const fl = s.floor, h = s.hill, e = s.event;
+    if (!fl && !h && !(e && e.type === "quake" && e.t > 0)) return;
+    ov.fill(0); qk.fill(0);
+    if (fl) {
+      convOff = still ? 0 : s.tick & 15;
+      for (let i = 0; i < GW * GH; i++) {
+        const f = fl[i];
+        if (!f) continue;
+        nOv++;
+        const ph = f === SPIKE ? spikePhase(s, i) : 0;
+        ov[i] = f < SPIKE ? f : f === SPIKE ? X.OV_SPIKE + (ph === 1 && !still && s.tick % 8 < 4 ? 0 : ph) : X.OV_TELE + ((f - TELE) % FLOORC.tele.length);
+      }
+    }
+    if (h) {
+      let n = 0;
+      for (let i = 0; i < s.players.length; i++) { const p = s.players[i]; if (p.alive && Math.abs(Math.floor(p.x / T) - h.x) <= 1 && Math.abs(Math.floor(p.y / T) - h.y) <= 1) n++; }
+      const zone = (cx, cy, kind) => {
+        for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 1; x <= cx + 1; x++) if (x >= 0 && y >= 0 && x < GW && y < GH && s.grid[y * GW + x] !== 1) { ov[y * GW + x] = kind; nOv++; }
+      };
+      zone(h.x, h.y, n > 1 ? X.OV_HOT : X.OV_HILL);
+      if (Array.isArray(h.next) && (still || s.tick % 20 < 14)) zone(h.next[0], h.next[1], X.OV_NEXT);
+    }
+    if (e && e.type === "quake" && e.t > 0 && e.tiles && (still || (e.t >> 2) & 1)) {
+      for (let i = 0; i < e.tiles.length; i++) { qk[e.tiles[i][1] * GW + e.tiles[i][0]] = 1; nQk++; }
     }
   }
 
@@ -142,9 +199,21 @@ export function createRendererFps(canvas) {
     const rx0 = dirX - pl.x, ry0 = dirY - pl.y, sx = (2 * pl.x) / cw, sy = (2 * pl.y) / cw;
     for (let y = hzi; y < vh; y++) {
       const rd = (0.5 * K) / (y - hz + 0.5);
-      shadePal(fl, light(rd));
+      const lf = light(rd);
+      shadePal(fl, lf);
       let fx = (camPX + rd * rx0) * 32, fy = (camPY + rd * ry0) * 32;
       const dx = rd * sx * 32, dy = rd * sy * 32;
+      if (nOv) {
+        const g = 256 - lf;
+        for (let x = 0, o = y * cw; x < cw; x++, o++) {
+          let p = shI[idx[((fy & 63) << 6) | (fx & 63)]];
+          const tx = fx >> 5, ty = fy >> 5;
+          if ((tx >>> 0) < GW && (ty >>> 0) < GH) { const k = ov[ty * GW + tx]; if (k) p = overlayPx(k, fx & 31, fy & 31, p, lf, g); }
+          bufI[o] = p;
+          fx += dx; fy += dy;
+        }
+        continue;
+      }
       for (let x = 0, o = y * cw; x < cw; x++, o++) {
         buf[o] = sh[idx[((fy & 63) << 6) | (fx & 63)]];
         fx += dx; fy += dy;
@@ -198,6 +267,14 @@ export function createRendererFps(canvas) {
     }
   }
 
+  function beacon(x, y, col) {
+    let r = ringCache.get(col), cl = colCache.get(col);
+    if (!r) ringCache.set(col, (r = X.ringTex(X.rgba(col))));
+    if (!cl) colCache.set(col, (cl = X.columnTex(col)));
+    add(r, x, y, 0.9, 0.2, 0, 0.02, 0);
+    add(cl, x, y, 0.3, 0.55, 0, 0, 1);
+  }
+
   function collect(s, tm, clock, meId) {
     const walk = !still;
     for (let i = 0; i < s.items.length; i++) {
@@ -220,18 +297,23 @@ export function createRendererFps(canvas) {
       const f = s.flames[i], k = Math.min(1, f.t / 8);
       add((f.i ? iceFlames : flames)[((clock / 70) | 0) % 3], f.x + 0.5, f.y + 0.5, 0.95, 0.95 * (0.35 + 0.65 * k), 0, 0, 1);
     }
-    const dx = dirX, dy = dirY;
+    if (s.floor) for (let i = 0; i < GW * GH; i++) if (s.floor[i] >= TELE) add(teleCols[(s.floor[i] - TELE) % teleCols.length], (i % GW) + 0.5, ((i / GW) | 0) + 0.5, 0.45, 0.8, 0, 0, 1);
+    const ev = s.event, evCol = ev && !ev.on && EVENT_INFO[ev.type]?.col;
+    if (evCol && ev.tiles && ev.type !== "quake") for (let i = 0; i < ev.tiles.length; i++) beacon(ev.tiles[i][0] + 0.5, ev.tiles[i][1] + 0.5, evCol);
+    const dx = dirX, dy = dirY, humans = humansOf(s), po = s.potato;
     for (let i = 0; i < s.players.length; i++) {
       const p = s.players[i];
       if (i === meId || !p.alive || p.dormant) continue;
       const x = p.x / T, y = p.y / T, id = i & 3;
-      const f = FACING[p.face & 3], back = f[0] * dx + f[1] * dy > 0.3 ? 2 : 0;
+      const f = FACING[p.face & 3], back = f[0] * dx + f[1] * dy > 0.3 ? 2 : 0, foe = i >= humans;
       if (p.inv > 0 && !(tm && tm[i] === tm[meId])) continue;
-      add(P_.body[id][back + (p.walk % 14 < 7 ? 0 : 1)], x, y, 0.57, 0.79, 0, 0, 0);
+      add(foe ? F_[back + (p.walk % 14 < 7 ? 0 : 1)] : P_.body[id][back + (p.walk % 14 < 7 ? 0 : 1)], x, y, 0.57, 0.79, 0, 0, 0);
+      if (po && po.holder === i) add(hotAura[!still && po.t < POTATO_TICKS / 4 && s.tick % 8 < 4 ? 1 : 0], x, y, 0.85, 1.0, -0.02, -0.01, 1);
+      if (ev && ev.type === "swap" && !ev.on && (ev.a === i || ev.b === i)) beacon(x, y, evCol);
       if (p.fz > 0) add(frost, x, y, 0.85, 1.0, -0.02, -0.01, 1);
       add(shadow, x, y, 0.7, 0.14, 0, 0.03, 0);
-      if (tm) {
-        const col = teamInfo(tm[i]).col;
+      if (tm || foe) {
+        const col = foe ? foeLook().ring : teamInfo(tm[i]).col;
         let r = ringCache.get(col);
         if (!r) ringCache.set(col, (r = X.ringTex(X.rgba(col))));
         add(r, x, y, 0.9, 0.2, 0, 0.02, 0);
@@ -241,7 +323,7 @@ export function createRendererFps(canvas) {
         add(items[7], x, y, 0.3, 0.3, 0.95 + (still ? 0 : 0.03 * Math.sin(clock / 130)), -0.02, 0);
       }
       if (p.shield > 0) add(shield[p.shield < 60 && p.shield % 10 < 5 ? 1 : 0], x, y, 0.85, 1.0, -0.02, -0.01, 1);
-      if (view.cb) add(digits[id], x, y, 0.2, 0.28, 0.85, -0.02, 1);
+      if (view.cb && !foe) add(digits[id], x, y, 0.2, 0.28, 0.85, -0.02, 1);
     }
   }
 
@@ -268,7 +350,7 @@ export function createRendererFps(canvas) {
       rows.forEach((e, k) => {
         const x = 4 + k * w;
         mark(e, x);
-        txt(`${e.name ? e.name.slice(0, w > 60 ? 8 : 5) + " " : ""}${e.score}`, x + 10, 10, e.i === meId ? "#ffd23c" : "#fff");
+        txt(e.pts >= 0 ? `${e.score}/${e.pts}p` : `${e.name ? e.name.slice(0, w > 60 ? 8 : 5) + " " : ""}${e.score >= 0 ? e.score : ""}`, x + 10, 10, e.i === meId ? "#ffd23c" : "#fff");
       });
     } else {
       [...new Set(rows.map((e) => e.team))].slice(0, 2).forEach((t, k) => {
@@ -283,6 +365,13 @@ export function createRendererFps(canvas) {
       c.fillStyle = "#000b"; c.fillRect(cw / 2 - 48, 15, 96, 11);
       txt(s.tick >= SUDDEN ? "SUDDEN DEATH" : "SUDDEN DEATH SOON", cw / 2, 24, s.tick % 40 < 20 ? "#e8453c" : "#ffd23c", "center");
     }
+  }
+
+  function status(s) {
+    const m = modeText(s), e = eventText(s);
+    c.font = "bold 8px monospace";
+    if (m) { c.fillStyle = "#000b"; c.fillRect(2, 26, m.length * 5 + 6, 11); txt(m, 5, 35, s.hill ? FLOORC.hill : s.potato ? FLOORC.potato : "#ff6a5c"); }
+    if (e) { c.fillStyle = "#000b"; c.fillRect(2, 37, e.length * 5 + 6, 11); txt(e, 5, 46, EVENT_INFO[s.event.type].col); }
   }
 
   function minimap(s, p, th) {
@@ -341,6 +430,12 @@ export function createRendererFps(canvas) {
     c.fillStyle = th.hard[1]; c.fillRect(0, vh, cw, 1);
     c.fillStyle = "#000"; c.fillRect(0, vh + 1, cw, 1);
     face(g, p, s, clock);
+    const po = s.potato;
+    if (po) {
+      const f = Math.max(0, Math.min(1, po.t / POTATO_TICKS));
+      c.fillStyle = "#000"; c.fillRect(3, vh + BAR - 4, cw - 6, 4);
+      c.fillStyle = !still && f < 0.25 && s.tick % 8 < 4 ? "#ff3b30" : FLOORC.potato; c.fillRect(4, vh + BAR - 3, (cw - 8) * f, 2);
+    }
     const cx = cw / 2, sp = Math.min(36, (cx - 20) / 3), y = vh + 8, left = Math.max(0, p.bombs - me.bombs);
     c.font = "bold 8px monospace";
     stat(cx - 18 - sp * 3, y, 0, sp >= 32 ? pair(left, p.bombs) : num(left));
@@ -492,6 +587,7 @@ export function createRendererFps(canvas) {
       flick = still ? 1 : 1 - 0.07 * (0.5 + 0.5 * Math.sin(clock * 0.011) * Math.sin(clock * 0.0173));
       const hz = vh / 2 + (still ? 0 : Math.sin(bobPh) * 1.6 * bobAmp);
 
+      buildOv(s);
       floorCeil(hz);
       walls(s.grid, hz);
       ns = 0;
@@ -510,6 +606,7 @@ export function createRendererFps(canvas) {
       const cur = p.alive ? curseText(p) : "";
       if (cur) { c.fillStyle = "#000b"; c.fillRect(2, vh - 14, cur.length * 5 + 6, 11); txt(cur, 5, vh - 5, "#d58cff"); }
       else if (!p.alive && !s.done && !g.banner) { c.fillStyle = "#000b"; c.fillRect(cw / 2 - 66, vh - 14, 132, 11); txt("You're out – spectating", cw / 2, vh - 5, "#fff", "center"); }
+      status(s);
       if (miniOn) minimap(s, p, th);
       banner(g);
       if (g.call) callout(g);
