@@ -1,4 +1,4 @@
-const CACHE = "kaboom-v19";
+const CACHE = "kaboom-v20";
 const FILES = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png",
   "/game/main.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js", "/game/look.js", "/game/settings.js", "/game/haptics.js", "/game/ux.js", "/game/campaign.js", "/game/story.js", "/game/storyui.js", "/game/director.js",
@@ -13,8 +13,11 @@ const FILES = [
   "/game/vendor/three-addons/shaders/OutputShader.js", "/game/vendor/three-addons/geometries/RoundedBoxGeometry.js", "/game/vendor/three-addons/environments/RoomEnvironment.js",
 ];
 
+// Heavy or optional files are cached on first use instead of at install: a slow connection must not stall or fail the whole install.
+const LAZY = (f) => f.startsWith("/portraits/") || f.startsWith("/game/vendor/three");
+
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.allSettled(FILES.filter((f) => !LAZY(f)).map((f) => c.add(f)))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
@@ -29,10 +32,15 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname === "/cable") return;
+  const net = () => fetch(e.request).then((r) => {
+    if (r.ok) caches.open(CACHE).then((c) => c.put(e.request, r.clone()));
+    return r;
+  });
+  // Portraits and vendored libraries only change with a cache bump: serve them from the cache first.
+  const stable = url.pathname.startsWith("/portraits/") || url.pathname.startsWith("/game/vendor/");
   e.respondWith(
-    fetch(e.request).then((r) => {
-      if (r.ok) caches.open(CACHE).then((c) => c.put(e.request, r.clone()));
-      return r;
-    }).catch(() => caches.match(e.request, { ignoreSearch: true })),
+    stable
+      ? caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || net())
+      : net().catch(() => caches.match(e.request, { ignoreSearch: true })),
   );
 });

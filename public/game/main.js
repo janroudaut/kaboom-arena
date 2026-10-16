@@ -210,7 +210,10 @@ function tick() {
   if (paused || !game || game.rematch || (mode !== "solo" && mode !== "host" && mode !== "local" && mode !== "story")) return;
   const g = game, s = g.s;
   if (g.wait > 0) {
+    // Hold on the recap until the player dismisses it (capped so a host never stalls the guests for long).
+    if (g.wait === 1 && recapOn && (g.hold = (g.hold || 0) + 1) < (mode === "host" ? 900 : 5400)) return;
     if (--g.wait === 0) {
+      g.hold = 0;
       if (g.over && g.story) {
         const ok = g.scores[0] > g.scores[1];
         toMenu();
@@ -546,7 +549,7 @@ function syncRecap(g) {
   el.classList.toggle("on", want);
   if (!want) return;
   fillRecap(el, g, g.win > 0 && g.scores.some((x) => x >= g.win));
-  el.append(Object.assign(document.createElement("small"), { textContent: "Tap or press a key to close" }));
+  el.append(Object.assign(document.createElement("small"), { textContent: "Tap or press a key to continue" }));
 }
 
 function punch({ x, y }) {

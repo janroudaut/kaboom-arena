@@ -5,7 +5,7 @@ let store = {};
 try { store = localStorage; } catch {}
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-const img = (id) => `<img src="/portraits/${id}.webp" width="256" height="256" alt="">`;
+const img = (id) => `<img src="/portraits/${id}.webp" width="256" height="256" alt="" data-p="${id}">`;
 const cap = (id) => `${esc(BY_ID[id].name)}<small>${esc(TEXT[id].epithet)}</small>`;
 
 // Static screens: timers only run while text is typing and during the 9..1 continue countdown.
@@ -137,6 +137,13 @@ export function createStoryUI({ root, show, fight, home, reduced }) {
     "pick-sel": select,
   };
 
+  // A portrait that fails on a flaky connection is retried (the error event does not bubble: capture it).
+  root.addEventListener("error", (e) => {
+    const im = e.target, n = +(im.dataset?.retry || 0);
+    if (im.tagName !== "IMG" || !im.dataset.p || n >= 3) return;
+    im.dataset.retry = n + 1;
+    setTimeout(() => { im.src = `/portraits/${im.dataset.p}.webp?r=${n + 1}`; }, 700 * (n + 1));
+  }, true);
   root.addEventListener("click", (e) => {
     if (typing && e.target.closest("[data-adv], .dlg")) { typing(); e.stopPropagation(); }
   }, true);
