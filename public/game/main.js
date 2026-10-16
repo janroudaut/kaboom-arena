@@ -14,6 +14,7 @@ import { createStoryUI } from "./storyui.js";
 import { BY_ID } from "./campaign.js";
 import { fightLine } from "./story.js";
 import { createDirector, timeScale, recapView } from "./director.js";
+import { fps } from "./fpsinput.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c"), ctx = canvas.getContext("2d");
@@ -45,12 +46,13 @@ function applyLook() {
   still = reduced(settings, motion.matches);
   setStill(still);
   r3?.setStill(still);
+  rf?.setStill(still);
   dirty = true;
 }
 motion.addEventListener?.("change", applyLook);
 let gnet = null, lastGrid = null, lastCfg = null, sentGrid = "", snapCount = 0, rtt = 0, pingTimer = 0;
-const GFX = ["classic", "3d", "dlss"];
-let gfx = "classic", r3 = null;
+const GFX = ["classic", "3d", "dlss", "fps"];
+let gfx = "classic", r3 = null, rf = null;
 try { gfx = localStorage.getItem("gfx") || "classic"; } catch {}
 if (!GFX.includes(gfx)) gfx = "classic";
 
@@ -63,10 +65,26 @@ function markGfx() {
   for (const b of $("gfx").children) b.setAttribute("aria-checked", b.dataset.gfx === gfx);
 }
 
+const is3 = () => (gfx === "3d" || gfx === "dlss") && !!r3;
+const fpsOn = () => gfx === "fps" && !!rf;
+
 async function applyGfx() {
   markGfx();
   try { localStorage.setItem("gfx", gfx); } catch {}
-  if (gfx !== "classic" && !r3) {
+  if (gfx === "fps" && !rf) {
+    try {
+      const { createRendererFps } = await import("./renderfps.js");
+      rf = createRendererFps($("cf"));
+      rf.setStill(reduced(settings, motion.matches));
+      fps.bind();
+    } catch (err) {
+      console.error(err);
+      gfx = "classic";
+      markGfx();
+      $("msg").textContent = "Bomber Shooter unavailable.";
+    }
+  }
+  if ((gfx === "3d" || gfx === "dlss") && !r3) {
     try {
       const { createRenderer3D } = await import("./render3d.js");
       r3 = createRenderer3D($("c3"), $("game"));
@@ -78,9 +96,11 @@ async function applyGfx() {
       $("msg").textContent = "3D graphics unavailable (WebGL or offline).";
     }
   }
-  const three = gfx !== "classic" && !!r3;
-  canvas.hidden = three;
+  const three = is3(), first = fpsOn();
+  canvas.hidden = three || first;
   $("c3").hidden = !three;
+  $("cf").hidden = !first;
+  if (first) rf.resize();
   if (r3) { r3.hud.style.display = three ? "" : "none"; if (three) r3.setDlss(gfx === "dlss"); r3.resize(); }
 }
 
@@ -123,7 +143,8 @@ function toMenu(msg = "") {
 
 const storyUi = createStoryUI({ root: $("story"), show: () => show("story"), fight: startStory, home: () => toMenu(), reduced: () => reduced(settings, motion.matches) });
 $("storyBtn").onclick = () => storyUi.open();
-const allInputs = () => merge(Object.keys(sources));
+const faceIn = (inp, id) => fps.map(inp, game.s.tick, (game.s.players[id]?.x ?? 0) < (W * T) / 2 ? 1 : 3);
+const allInputs = () => (fpsOn() && game ? faceIn(merge(Object.keys(sources)), Math.max(game.me, 0)) : merge(Object.keys(sources)));
 
 const input = createInput(
   $("pad"),
@@ -196,6 +217,7 @@ function startMatch(n, story, storyNames) {
   botMem = {};
   feel = {};
   resetFeel();
+  fps.reset();
   sentGrid = "";
   $("pauseBtn").hidden = mode !== "solo" && mode !== "local" && mode !== "story";
   show("game");
@@ -234,7 +256,7 @@ function tick() {
   const allOut = mode === "solo" || mode === "story" ? !s.players[0].alive : mode === "local" && s.players.every((p) => p.id >= humans.length || !p.alive);
   for (let k = 0; k < (allOut ? 3 : 1) && !s.done; k++) {
     const inputs = {};
-    if (mode === "local") humans.forEach((n, i) => (inputs[i] = merge([n])));
+    if (mode === "local") humans.forEach((n, i) => (inputs[i] = i || !fpsOn() ? merge([n]) : faceIn(merge([n]), 0)));
     else inputs[0] = allInputs();
     for (const p of s.players) {
       if (mode === "local" ? p.id < humans.length : p.id === 0) continue;
@@ -553,7 +575,8 @@ function syncRecap(g) {
 }
 
 function punch({ x, y }) {
-  if (gfx !== "classic" && r3) return r3.punch(x, y);
+  if (gfx === "fps") return;
+  if (is3()) return r3.punch(x, y);
   canvas.style.transformOrigin = `${(x / W) * 100}% ${((y * T + 16) / CH) * 100}%`;
   canvas.animate([{ transform: "scale(1)" }, { transform: "scale(1.07)", offset: 0.25 }, { transform: "scale(1)" }], { duration: 600, easing: "ease-out" });
 }
@@ -596,7 +619,7 @@ function loop(now) {
   if (game && (!paused || dirty)) {
     dirty = false;
     try {
-      gfx !== "classic" && r3 ? r3.draw(game) : draw(ctx, game);
+      is3() ? r3.draw(game) : fpsOn() ? rf.draw(game) : draw(ctx, game);
     } catch (err) {
       if (String(err) !== lastErr) console.error((lastErr = String(err)), err);
     }

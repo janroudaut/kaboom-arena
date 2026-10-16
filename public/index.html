@@ -128,6 +128,7 @@
   .seg button[aria-checked="true"] { background: var(--blue); color: #fff; box-shadow: inset 0 -3px #0004; font-weight: 800; }
   .seg button[aria-checked="true"]::before { content: "✓ "; }
   .seg button[data-gfx="dlss"][aria-checked="true"] { background: linear-gradient(135deg, #76b900, #2f8f3a); }
+  .seg button[data-gfx="fps"][aria-checked="true"] { background: linear-gradient(135deg, #ff8a1a, #b8321c); }
   .seg.wrap { gap: 1px; background: #fff2; }
   .seg.wrap button { background: #222233; border-left: 0; }
   .seg.wrap button[aria-checked="true"] { background: var(--blue); }
@@ -275,10 +276,11 @@
       <button id="create" class="alt">Create a room</button>
       <div class="row"><input id="joinCode" maxlength="4" placeholder="CODE" size="6" autocomplete="off" aria-label="Room code"><button id="join" class="alt">Join</button></div>
       <div class="label">Graphics</div>
-      <div id="gfx" class="seg" role="radiogroup" aria-label="Graphics">
+      <div id="gfx" class="seg" style="--n:4" role="radiogroup" aria-label="Graphics">
         <button role="radio" data-gfx="classic">Classic</button>
         <button role="radio" data-gfx="3d">3D</button>
         <button role="radio" data-gfx="dlss">DLSS 5 ✨</button>
+        <button role="radio" data-gfx="fps" title="First-person mode. Bomber Shooter is a nod to the boomer shooter genre. Original art, not affiliated with id Software.">Bomber Shooter</button>
       </div>
       <div class="row chips"><button id="helpBtn" class="chip">? How to play</button><button id="settingsBtn" class="chip">⚙ Settings</button></div>
       <button id="installBtn" class="chip" hidden>⬇ Install app</button>
@@ -328,6 +330,7 @@
 <div id="game" class="screen">
   <canvas id="c"></canvas>
   <canvas id="c3" hidden></canvas>
+  <canvas id="cf" hidden></canvas>
   <div id="ping"></div>
   <button id="pauseBtn" hidden aria-label="Pause">⏸</button>
   <button id="quit" aria-label="Quit">✕</button>
@@ -356,6 +359,8 @@
       <li><b>Gamepad</b> D-pad or stick, any button drops a bomb, Start pauses</li>
       <li><b>Touch</b> left pad to move, 💣 to drop a bomb</li>
       <li><b>Pause</b> P or Esc</li>
+      <li><b>First person</b> Graphics: Bomber Shooter. ←/→ turn, ↑/↓ walk, , and . strafe, M minimap. In local games only the first player gets this view.</li>
+      <li><b>Note</b> Bomber Shooter is a nod to the boomer shooter genre. Original art, not affiliated with id Software.</li>
     </ul>
     <button id="helpDone">Got it</button>
   </div>

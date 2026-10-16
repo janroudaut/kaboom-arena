@@ -11,6 +11,8 @@ Works on desktop, phone and tablet, installable as a PWA, solo mode works offlin
 > All graphics are drawn in code, no original assets are used.
 >
 > The "DLSS" / "RTX" graphics mode is a joke about GPU marketing. It uses text only, no logos, and is not affiliated with or endorsed by NVIDIA.
+>
+> "Bomber Shooter" (the first-person mode) is a nod to the boomer shooter genre. Original art, not affiliated with id Software.
 
 <p align="center">
   <img src="docs/screenshots/menu.jpg" width="49%" alt="Home screen with a live bot match behind the menu">

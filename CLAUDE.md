@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -51,6 +51,12 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - `mode: "hill" | "potato" | "survival"` (forces sudden death off): `state.hill` (3x3 zone, relocation telegraph in `next`, goal 30 points or highest at 90 s), `state.potato` (`holder`, 10 s fuse, passes by touch with a global cooldown, owner -1 blast of range 3), `state.survival` (humans then 12 dormant enemy slots `dormant: true` on team 1, waves activate `1 + wave` enemies, cap 8 alive, round ends when every human is dead). Renderers/HUD must skip `p.dormant` and non-alive enemy slots; the main loop must call `think` for every player id.
 - Bots treat spikes as timed danger, never enter teleporters, avoid ice/conveyors in strict escape planning, flee bomb-rain bombs, head for the hill, chase or flee the potato holder, and hunt humans in survival. `extras.test.mjs` covers all of it, including prediction parity through ice, conveyors and frenzy.
 - `floor` is static: send it with the grid (like `g`) and keep it on the guest across snapshots.
+
+## Bomber Shooter (experiment, first-person mode)
+- A fourth graphics mode ("First-person" in the Graphics toggle): a software raycaster over the same game state, so it works in solo, local, story, host and guest. Files: `raycast.js` (pure DDA/projection math, tested against a brute-force marcher), `fpsinput.js` (facing + input transform), `fpstex.js` (procedural paletted textures and sprites), `renderfps.js` (renderer + status-bar HUD + minimap), tests `raycast.test.mjs`, `fpsinput.test.mjs`. To remove the experiment: delete these files and revert the small hunks in `main.js` (import, `GFX` allow-list, `is3()`/`fpsOn()`, input transform, `fps.reset()`, draw dispatch), `index.html` (4th `#gfx` button, `<canvas id="cf">`, help lines) and `sw.js` (FILES).
+- Controls (first human only; in local games P2 keeps classic controls): left/right turn 90 degrees (repeat after 20 ticks then every 12), up/down walk along the facing axis, strafe on Comma/Period or gamepad LB/RB, M toggles the minimap (persisted as `fpsmap`). The sim input stays axis-aligned `{dx, dy, bomb}`; `fps.map` must be called once per sim step.
+- Perf: internal height 200 (150 on mobile, drawn at ~30 fps), no per-frame allocation in the 3D pass. In V8, writing doubles into object fields, passing doubles to non-inlined hot functions or using a literal `Infinity` allocates per call: keep ray state in typed arrays. `rf.ms` is an EMA of draw time for debugging.
+- Not rendered: floor-tile art, hill/potato/chaos visuals (ignored safely). Parody note: a nod to the boomer shooter genre, original art, not affiliated with id Software.
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).
