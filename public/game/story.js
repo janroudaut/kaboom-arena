@@ -180,6 +180,20 @@ const SPECIAL = {
   "kapow>gunpowder": ["Whoa! Can I have your autograph? Is the skull real?", "I sign with fire, kid. Hold still."],
 };
 
+// In-fight bubbles, one short line per event (<= 26 chars): first bomb, close call, dying, winning a round.
+const FIGHT = {
+  ignatius: { bomb: "Fire in the hole, kid!", close: "My good eye! Phew.", die: "Tell Mama I tried.", win: "Old man still got it." },
+  dynamita: { bomb: "BOOM time!", close: "Too close! Rude!", die: "Not fair! Rematch!", win: "Bigger bomb next!" },
+  baron: { bomb: "Mind the carpet.", close: "Unseemly. Truly.", die: "My monocle!", win: "Exquisite." },
+  mama: { bomb: "Rolling pin, assemble!", close: "Too old for this!", die: "Where are my glasses?", win: "Now eat something." },
+  dolores: { bomb: "Darling, duck.", close: "My mascara!", die: "Disaster, darling!", win: "Never doubt a diva." },
+  tony: { bomb: "Nothing personal.", close: "Watch the suit!", die: "Boss'll kill me...", win: "Told ya. On time." },
+  fizzle: { bomb: "Have at thee!", close: "Where did that come from?", die: "I fizzled. Again.", win: "I... won? Really?" },
+  kapow: { bomb: "Sign here, please!", close: "Eek! My helmet!", die: "Telling Tony!", win: "Autograph please!" },
+  gunpowder: { bomb: "Rise and explode.", close: "I'm already dead!", die: "BRB. Back to the grave.", win: "Back to your grave." },
+};
+export const fightLine = (id, ev) => FIGHT[id]?.[ev] ?? null;
+
 const hash = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const fill = (t, o) => t.replace("{o}", o);
 

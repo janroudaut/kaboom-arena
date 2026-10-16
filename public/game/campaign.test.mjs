@@ -4,7 +4,8 @@ import { newGame } from "./sim.js";
 import { LAYOUTS } from "./settings.js";
 import { THEMES, setSuits, palette, view } from "./look.js";
 import { ROSTER, BY_ID, KINDS, RELATIONS, ladder, fightOf, relation, WIN, fresh, load, save, sanitize, begin, advance, playable } from "./campaign.js";
-import { TEXT, banter, TEMPLATE_ROLES } from "./story.js";
+import { TEXT, banter, TEMPLATE_ROLES, fightLine } from "./story.js";
+import { wrap } from "./director.js";
 
 const ids = ROSTER.map((f) => f.id);
 const mem = (init) => { const d = { ...init }; return { getItem: (k) => d[k] ?? null, setItem: (k, v) => (d[k] = String(v)), d }; };
@@ -129,4 +130,15 @@ test("fighter suits: custom palette is stable, dark shades derived, colour-blind
   view.cb = false;
   setSuits(null);
   assert.equal(palette(), std);
+});
+
+test("every fighter has a short in-fight line per event that fits a two-line bubble", () => {
+  for (const id of ids) {
+    for (const ev of ["bomb", "close", "die", "win"]) {
+      const l = fightLine(id, ev);
+      assert.ok(l && l.length <= 26, `${id} ${ev}`);
+      assert.ok(wrap(l).every((x) => x.length <= 14), `${id} ${ev}`);
+    }
+  }
+  assert.equal(fightLine("nobody", "bomb"), null);
 });

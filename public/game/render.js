@@ -1,4 +1,5 @@
 import { W, H, T, SUDDEN } from "./sim.js";
+import { placeBubble } from "./director.js";
 import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view } from "./look.js";
 
 export const CW = W * T, CH = H * T + 16;
@@ -255,6 +256,39 @@ function hud(c, g) {
   }
 }
 
+const PIX = '8px "Press Start 2P", monospace', spot = {};
+const BOX = [2, TOP + 2, CW - 2, CH - 2], HOLE = [CW / 2 - 44, CH / 2 - 36, CW / 2 + 44, CH / 2 + 36];
+
+function callout(c, g) {
+  const k = g.call, t = (g.clock - k.at) / (k.until - k.at);
+  const a = Math.min(1, t / 0.1, (1 - t) / 0.25);
+  c.save();
+  c.globalAlpha = Math.max(0, a);
+  c.translate(CW / 2, CH * 0.36);
+  if (!k.still) { const z = 1 + 0.5 * Math.max(0, 1 - t / 0.12); c.rotate(-0.04 * (1 - Math.min(1, t * 4))); c.scale(z, z); }
+  c.font = g.retro ? '12px "Press Start 2P", monospace' : "900 20px monospace";
+  c.textAlign = "center"; c.lineJoin = "round";
+  c.lineWidth = 4; c.strokeStyle = "#000"; c.strokeText(k.text, 0, 0, 224);
+  c.fillStyle = "#ffd23c"; c.fillText(k.text, 0, 0, 224);
+  c.restore();
+}
+
+function bubbles(c, g) {
+  c.font = PIX; c.textAlign = "left";
+  for (let i = 0; i < 2; i++) {
+    const b = g.bub[i], p = g.s.players[i];
+    if (!b || !p) continue;
+    const w = b.cols * 8 + 8, h = b.lines.length * 10 + 6;
+    placeBubble(spot, p.x, p.y + TOP - 16, w, h, BOX, HOLE);
+    const x = Math.round(spot.x), y = Math.round(spot.y);
+    c.fillStyle = "#000"; c.fillRect(x - 1, y - 1, w + 2, h + 2);
+    c.fillStyle = "#fff"; c.fillRect(x, y, w, h);
+    if (spot.tail) { c.fillStyle = "#000"; c.fillRect(Math.round(p.x) - 2, y + h, 5, 4); c.fillStyle = "#fff"; c.fillRect(Math.round(p.x) - 1, y + h, 3, 3); }
+    c.fillStyle = "#14141f";
+    b.lines.forEach((l, k) => c.fillText(l, x + 4, y + 10 + k * 10));
+  }
+}
+
 export function draw(c, g) {
   const s = g.s, th = themeOf(s.cfg), sp = sprites(th), tm = teamsOf(s);
   c.fillStyle = "#17171f";
@@ -298,4 +332,6 @@ export function draw(c, g) {
     c.fillStyle = "#fff"; c.font = g.retro ? '8px "Press Start 2P", monospace' : "bold 10px monospace"; c.textAlign = "center";
     c.fillText(g.banner, CW / 2, CH / 2 + 4);
   }
+  if (g.call) callout(c, g);
+  if (g.bub && (g.bub[0] || g.bub[1])) bubbles(c, g);
 }

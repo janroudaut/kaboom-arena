@@ -43,3 +43,10 @@ test("accessibility settings: defaults, validation, reduce follows the system on
   assert.equal(reduced({ reduce: false }, true), false);
   assert.equal(reduced({ reduce: true }, false), true);
 });
+
+test("game feel settings: on by default, validated, listed in their own group", () => {
+  assert.deepEqual([DEFAULTS.announcer, DEFAULTS.slowmo, DEFAULTS.recap], [true, true, true]);
+  assert.deepEqual(sanitize({ announcer: false, slowmo: false, recap: false }), { ...DEFAULTS, announcer: false, slowmo: false, recap: false });
+  assert.deepEqual(sanitize({ announcer: "off", slowmo: 0, recap: null }), DEFAULTS);
+  assert.deepEqual(FIELDS.filter((f) => f.feel).map((f) => f.key), ["announcer", "slowmo", "recap"]);
+});

@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -38,6 +38,12 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - `fx.js` is a pure, allocation-free observer (tests in `fx.test.mjs`): it diffs successive states and reports `reset`, `die`, `bomb`, `wall` and `pick`, so solo, host and guest animate the same way. The renderer derives death spins and ghosts, bomb drop/squash, wall crumble, item pops and the round-end hop from those events, and resets on a new round.
 - Everything extra is gated by `setStill` (reduce motion) and uses no timers; DLSS parody gags (toasts, "hallucinated" brick, re-render shimmer, stat line) are tuned with the `GAG` constants and run on accumulated game time, so pauses and hidden tabs do not advance them. The `MOBILE` flag halves pools and sparks.
 - Per-player `castShadow` is a whitelist (torso, head, legs, shoes, hands): do not re-add a `traverse`.
+
+## Game feel (`director.js`)
+- `director.js` is a pure, allocation-free observer plus orchestrator in the style of `fx.js` (tests in `director.test.mjs`): a state-diff tracker (kills, own-bomb deaths, chains, close calls; flames carry no owner so each blast is recomputed from the previous grid), the announcer queue (max 2, cooldowns, priorities), hit-stop/slow-mo timing, story speech-bubble placement and the round/match recap data. Its state lives at module scope in `main.js` because guests rebuild `game` on every snapshot; renderers read `g.call`, `g.bub`, `g.clock` and `g.ts`.
+- Time effects (hit-stop 80 ms, 0.35x slow-mo for the deciding kill) scale the local accumulator and run only in solo, local and story: never in host or guest, so determinism and tick rates are untouched (online only gets visual punches). Reduce motion or the Slow-mo setting turns them off; the announcer then shows a static fade.
+- Settings flagged `feel: true` render in the "Game feel" group (`#feelList`): Announcer, Slow-mo, Round recap. In-fight story lines live in `story.js` `fightLine(id, ev)`.
+- Known limit: chain-reaction order is not replayed, so kill credit can be off by one in rare chains; a sliding bomb that explodes is not attributed.
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).

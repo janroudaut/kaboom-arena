@@ -10,6 +10,7 @@ import { W, H, T, SUDDEN, FLAME, FUSE, END_DELAY } from "./sim.js";
 import { ICONS } from "./render.js";
 import { esc } from "./lobby.js";
 import { createObserver } from "./fx.js";
+import { placeBubble } from "./director.js";
 import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view } from "./look.js";
 
 const MOBILE = matchMedia("(pointer: coarse)").matches;
@@ -17,6 +18,7 @@ const FLAME_LIGHTS = MOBILE ? 2 : 6, MAX_PARTICLES = 400;
 const FACE_ANGLE = [Math.PI, Math.PI / 2, 0, -Math.PI / 2];
 const FX = { death: 0.8, drop: 0.35, crumble: 0.45, flourish: 1.4, debris: MOBILE ? 28 : 56, pieces: MOBILE ? 3 : 4, fuseRate: MOBILE ? 0.5 : 1 };
 // DLSS parody gags: [min, max] seconds between occurrences (game time, so pauses do not count).
+const PUNCH_S = 0.9, AI_TAGS = ["AI-enhanced", "+4 generated frames", "neural upscaled*"];
 const GAG = { toast: [20, 40], toastShow: 3.5, halluc: [30, 60], halluShow: 0.6, shimmer: 1.2, checklist: 6, tickEvery: 0.45 };
 const FAKE_FEATURES = ["Ray Reconstruction", "Frame Gen ×4", "Neural Faces™", "Super Resolution"];
 const TOASTS = ["Neural frame ×4 generated", "Re-imagined {n} bricks", "Enhanced {p}'s cheekbones", "Upscaled {p}'s confidence", "Hallucinated {n} extra frames", "Denoised the vibes", "Added 2 fingers to {p} for realism", "Generative fuse optimisation active", "Smoothed {p}'s expression"];
@@ -411,9 +413,9 @@ export function createRenderer3D(canvas, hudParent) {
 
   const hud = document.createElement("div");
   hud.id = "hud3";
-  hud.innerHTML = '<div class="h3-scores"></div><button class="h3-badge"></button><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div>';
+  hud.innerHTML = '<div class="h3-scores"></div><button class="h3-badge"></button><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div><div class="h3-call"></div><div class="h3-bub"></div><div class="h3-bub"></div>';
   hudParent.appendChild(hud);
-  const [elScores, elBadge, elToast, elBanner, elSpec] = hud.children;
+  const [elScores, elBadge, elToast, elBanner, elSpec, elCall, ...elBub] = hud.children;
   const [elBannerText, elStat] = elBanner.children;
 
   let dlss = true, scale = MOBILE ? 0.7 : 1, w = 1, h = 1, shake = 0, still = false;
@@ -423,7 +425,8 @@ export function createRenderer3D(canvas, hudParent) {
   const seen = new Set();
   let lastHud = "", lastBanner = "", statN = 0;
   let clk = 0, dlssT = 0, nextToast = between(GAG.toast) / 2, toastHide = 0, nextHallu = between(GAG.halluc) / 2, halluEnd = 0, halluStart = 0, halluIdx = 0, halluCell = -1;
-  let curS = null, colDirty = false;
+  let curS = null, colDirty = false, shownCall = null, pun = null;
+  const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3(), spot = {};
 
   function resize() {
     w = innerWidth; h = innerHeight;
@@ -609,11 +612,46 @@ export function createRenderer3D(canvas, hudParent) {
     elSpec.style.display = out ? "block" : "none";
   }
 
+  function updateCall(g) {
+    const k = g.call ?? null;
+    if (k === shownCall) return;
+    shownCall = k;
+    if (!k) { elCall.style.display = "none"; return; }
+    elCall.textContent = k.text;
+    if (dlss && !still && !g.retro && Math.random() < 0.3) elCall.append(Object.assign(document.createElement("small"), { textContent: pick(AI_TAGS) }));
+    elCall.className = g.retro ? "h3-call retro" : "h3-call";
+    elCall.style.display = "block";
+    const fade = [{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }];
+    const pop = fade.map((f, i) => ({ ...f, transform: i === 0 ? "scale(1.7) rotate(-4deg)" : i === 1 ? "scale(1)" : "none" }));
+    elCall.animate(k.still || still ? fade : pop, { duration: k.until - k.at, fill: "forwards" });
+  }
+
+  function updateBubbles(g) {
+    for (let i = 0; i < 2; i++) {
+      const el = elBub[i], b = g.bub?.[i], p = b && g.s.players[i];
+      if (!p) {
+        if (el._b) { el._b = null; el.style.display = "none"; }
+        continue;
+      }
+      if (el._b !== b) {
+        el._b = b;
+        el.textContent = b.lines.join("\n");
+        el.style.display = "block";
+        el._w = el.offsetWidth; el._h = el.offsetHeight;
+      }
+      tmpV.set(p.x / T, 1.9, p.y / T).project(camera);
+      const bx = [8, 56, w - 8, h - (MOBILE ? 170 : 8)], hole = [w * 0.38, h * 0.36, w * 0.62, h * 0.64];
+      placeBubble(spot, (tmpV.x * 0.5 + 0.5) * w, (-tmpV.y * 0.5 + 0.5) * h, el._w, el._h, bx, hole, 4);
+      el.style.transform = `translate(${spot.x | 0}px,${spot.y | 0}px)`;
+      el.classList.toggle("notail", !spot.tail);
+    }
+  }
+
   function draw(g) {
     const now = performance.now();
-    const dt = Math.min((now - lastNow) / 1000, 0.1);
+    const rdt = Math.min((now - lastNow) / 1000, 0.1), dt = rdt * (g.ts ?? 1);
     lastNow = now;
-    acc += dt; frames++;
+    acc += rdt; frames++;
     clk += dt;
     if (dlss) dlssT += dt;
     if (acc >= 0.5) {
@@ -835,18 +873,26 @@ export function createRenderer3D(canvas, hudParent) {
     const base = camera.userData.base;
     shake *= 0.9;
     camera.position.set(base.x + (Math.random() - 0.5) * shake * 0.25, base.y + (Math.random() - 0.5) * shake * 0.25, base.z);
-    camera.lookAt(center);
+    let kp = 0;
+    if (pun) { pun.t += rdt; if (pun.t >= PUNCH_S) pun = null; else kp = Math.sin((Math.PI * pun.t) / PUNCH_S); }
+    if (kp) {
+      tmpV.set(pun.x, 0.3, pun.z);
+      camera.position.lerp(tmpV, 0.12 * kp);
+      camera.lookAt(tmpL.copy(center).lerp(tmpV, 0.3 * kp));
+    } else camera.lookAt(center);
 
     finish.uniforms.time.value = now / 1000;
     finish.uniforms.boost.value = gags && dlssT < GAG.shimmer ? Math.sin((Math.PI * dlssT) / GAG.shimmer) : 0;
     if (dlss) composer.render();
     else renderer.render(scene, camera);
     updateHud(g, now);
+    updateCall(g);
+    updateBubbles(g);
   }
 
   elBadge.addEventListener("click", () => setDlss(!dlss));
   addEventListener("keydown", (e) => { if (e.code === "KeyT" && e.target.tagName !== "INPUT" && hud.offsetParent) setDlss(!dlss); });
   addEventListener("resize", resize);
   resize();
-  return { draw, resize, setDlss, hud, setStill: (on) => { still = on; shake = 0; if (on) freeFx(); }, get dlss() { return dlss; } };
+  return { draw, resize, setDlss, hud, punch: (x, z) => { if (!still) pun = { x, z, t: 0 }; }, setStill: (on) => { still = on; shake = 0; if (on) { pun = null; freeFx(); } }, get dlss() { return dlss; } };
 }

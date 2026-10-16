@@ -1,17 +1,19 @@
-import { newGame, step } from "./sim.js";
+import { newGame, step, W, T } from "./sim.js";
 import { think } from "./ai.js";
 import { draw, CW, CH } from "./render.js";
 import { createInput, merge, sources, clearBombs, labelOf } from "./input.js";
 import { joinRoom, newCode, cid } from "./net.js";
 import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
-import { teamInfo, view, setSuits } from "./look.js";
+import { teamInfo, view, setSuits, palette } from "./look.js";
 import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts, reduced } from "./settings.js";
 import { createHaptics, browserVibrate, browserRumble, observe } from "./haptics.js";
 import { setStill } from "./home.js";
 import { initHelp, initInstall, watchUpdates } from "./ux.js";
 import { createStoryUI } from "./storyui.js";
 import { BY_ID } from "./campaign.js";
+import { fightLine } from "./story.js";
+import { createDirector, timeScale, recapView } from "./director.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c"), ctx = canvas.getContext("2d");
@@ -28,11 +30,18 @@ let settings = loadSettings();
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 const haptics = createHaptics({ vibrate: browserVibrate, rumble: browserRumble, settings: () => settings });
 let feel = {};
+const fd = createDirector();
+let clock = 0, ts = 1, still = false, recapOn = false, recapOff = false;
+const fx = {
+  human: (i) => (mode === "local" ? i < humans.length : i === (game?.me ?? 0)),
+  announce: true, timeFx: false, punch: false, chat: false, still: false, rand: Math.random,
+  line: (i, ev) => fightLine(game?.story?.[i ? "foe" : "id"], ev),
+};
 
 function applyLook() {
   feel = {};
   view.cb = settings.cb;
-  const still = reduced(settings, motion.matches);
+  still = reduced(settings, motion.matches);
   setStill(still);
   r3?.setStill(still);
   dirty = true;
@@ -96,6 +105,7 @@ function toMenu(msg = "") {
   botMem = {};
   humans = [];
   feel = {};
+  resetFeel();
   setSuits(null);
   gnet = lastGrid = lastCfg = null;
   names = pnames = [];
@@ -117,7 +127,7 @@ const allInputs = () => merge(Object.keys(sources));
 const input = createInput(
   $("pad"),
   $("bombBtn"),
-  (name) => (mode === "local-lobby" ? joinLocal(name) : name.startsWith("pad") && storyUi.press()),
+  (name) => (mode === "local-lobby" ? joinLocal(name) : dismissRecap() || (name.startsWith("pad") && storyUi.press())),
   () => {
     for (const [n, src] of Object.entries(sources)) if (n.startsWith("pad") && (src.dx || src.dy)) storyUi.nav(src.dx, src.dy);
   },
@@ -184,6 +194,7 @@ function startMatch(n, story, storyNames) {
   if (story) game.banner = roundBanner(game);
   botMem = {};
   feel = {};
+  resetFeel();
   sentGrid = "";
   $("pauseBtn").hidden = mode !== "solo" && mode !== "local" && mode !== "story";
   show("game");
@@ -335,8 +346,9 @@ function syncRematch() {
   if (on === rmShown) return;
   rmShown = on;
   $("rematch").classList.toggle("on", on);
-  if (!on) return;
+  if (!on) return $("rematchRecap").replaceChildren();
   $("rematchTitle").textContent = game.banner;
+  if (settings.recap) fillRecap($("rematchRecap"), game, true);
   $("again").hidden = $("rematchWait").hidden = false;
   if (mode === "guest") $("again").hidden = true;
   else $("rematchWait").hidden = true;
@@ -482,10 +494,87 @@ function rumble(g) {
   }
 }
 
+function resetFeel() {
+  fd.restart();
+  ts = 1;
+  hideRecap();
+}
+
+function hideRecap() {
+  recapOn = recapOff = false;
+  $("recap").classList.remove("on");
+}
+
+function dismissRecap() {
+  if (!recapOn) return false;
+  recapOff = true;
+  clearBombs();
+  syncRecap(game);
+  return true;
+}
+
+function fillRecap(el, g, over) {
+  const v = recapView(over ? fd.tracker.total() : fd.tracker.round(), g.s.players.length, g.names);
+  const head = Object.assign(document.createElement("h3"), { textContent: over ? "Match recap" : "Round recap" });
+  const table = document.createElement("table");
+  const row = (cells, tag, c) => {
+    const tr = document.createElement("tr");
+    if (c) tr.style.setProperty("--c", c);
+    for (const t of cells) tr.append(Object.assign(document.createElement(tag), { textContent: t }));
+    table.append(tr);
+  };
+  row(["", "Bombs", "Kills", "Items", "Walls"], "th");
+  const suit = palette().suit;
+  for (const r of v.rows) row([r.name, ...r.cells], "td", suit[r.id]);
+  const list = document.createElement("ul");
+  for (const a of v.awards) {
+    const li = document.createElement("li");
+    li.append(Object.assign(document.createElement("b"), { textContent: a.title }), Object.assign(document.createElement("span"), { textContent: ` ${v.rows[a.who].name}: ${a.desc}` }));
+    list.append(li);
+  }
+  el.classList.toggle("retro", !!g.retro);
+  el.replaceChildren(head, table, list);
+}
+
+function syncRecap(g) {
+  if (!g.s.done) recapOff = false;
+  const want = settings.recap && g.s.done && !g.rematch && !recapOff;
+  if (want === recapOn) return;
+  recapOn = want;
+  const el = $("recap");
+  el.classList.toggle("on", want);
+  if (!want) return;
+  fillRecap(el, g, g.win > 0 && g.scores.some((x) => x >= g.win));
+  el.append(Object.assign(document.createElement("small"), { textContent: "Tap or press a key to close" }));
+}
+
+function punch({ x, y }) {
+  if (gfx !== "classic" && r3) return r3.punch(x, y);
+  canvas.style.transformOrigin = `${(x / W) * 100}% ${((y * T + 16) / CH) * 100}%`;
+  canvas.animate([{ transform: "scale(1)" }, { transform: "scale(1.07)", offset: 0.25 }, { transform: "scale(1)" }], { duration: 600, easing: "ease-out" });
+}
+
+function feelStep(g) {
+  const fxOn = settings.slowmo && !still;
+  fx.announce = settings.announcer;
+  fx.still = still;
+  fx.timeFx = fxOn && (mode === "solo" || mode === "local" || mode === "story");
+  fx.punch = fxOn;
+  fx.chat = settings.announcer && !still && mode === "story";
+  g.call = fd.update(g.s, clock, fx);
+  g.bub = fd.bub;
+  g.clock = clock;
+  g.ts = ts = fx.timeFx ? timeScale(fd, clock) : 1;
+  if (fd.punch) { punch(fd.punch); fd.punch = null; }
+  syncRecap(g);
+}
+
 let last = performance.now(), acc = 0, lastErr = "";
 function loop(now) {
-  acc += Math.min(now - last, 100);
+  const raw = Math.min(now - last, 100);
   last = now;
+  if (!paused) clock += raw;
+  acc += raw * ts;
   while (acc >= 1000 / 60) {
     acc -= 1000 / 60;
     frame++;
@@ -497,6 +586,7 @@ function loop(now) {
   if (mode === "guest" && game && !lostAt && now - lastSnap > 4000) lose();
   if (lostAt && performance.now() - lostAt > RECONNECT_MS) toMenu("Connection lost.");
   if (mode === "guest" && game && gnet) game.s = gnet.frame(performance.now());
+  if (game && !paused) feelStep(game);
   syncRematch();
   if (game && !paused) rumble(game);
   if (game && (!paused || dirty)) {
@@ -515,6 +605,9 @@ applyLook();
 watchUpdates();
 initInstall();
 initHelp([$("helpBtn"), $("pauseHelp")]);
+
+$("recap").onclick = dismissRecap;
+addEventListener("keydown", (e) => e.code !== "Escape" && e.code !== "KeyP" && !e.metaKey && !e.ctrlKey && dismissRecap());
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest?.("button");
@@ -541,7 +634,7 @@ for (const f of FIELDS) {
     b.onclick = () => { settings[f.key] = v; saveSettings(settings); markSettings(); applyLook(); };
     seg.append(b);
   }
-  $(f.a11y ? "a11yList" : "setList").append(label, seg);
+  $(f.a11y ? "a11yList" : f.feel ? "feelList" : "setList").append(label, seg);
 }
 $("settingsBtn").onclick = () => { markSettings(); show("settings"); $("setBack").focus(); };
 $("setBack").onclick = () => show("menu");

@@ -15,6 +15,9 @@ export const FIELDS = [
   { key: "sudden", label: "Sudden death", opts: ON_OFF },
   { key: "teams", label: "Teams (4 players)", opts: [[false, "Off"], [true, "2 vs 2"]] },
   { key: "ff", label: "Friendly fire (teams)", opts: ON_OFF },
+  { key: "announcer", label: "Announcer banners and taunts", opts: ON_OFF, feel: true },
+  { key: "slowmo", label: "Slow-mo and hit-stop", opts: ON_OFF, feel: true },
+  { key: "recap", label: "Round recap with awards", opts: ON_OFF, feel: true },
   { key: "cb", label: "Colour-blind friendly colours", opts: [[false, "Off"], [true, "On"]], a11y: true },
   { key: "reduce", label: "Reduce motion (shake, sparks, menu)", opts: SYS, a11y: true },
   { key: "vibrate", label: "Phone vibration", opts: ON_OFF, a11y: true },
@@ -22,7 +25,7 @@ export const FIELDS = [
   { key: "intensity", label: "Vibration intensity", opts: [["low", "Low"], ["normal", "Normal"], ["strong", "Strong"]], a11y: true },
 ];
 
-export const DEFAULTS = { bot: "normal", rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal" };
+export const DEFAULTS = { bot: "normal", rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal", announcer: true, slowmo: true, recap: true };
 
 export const reduced = (set, system) => (set.reduce === "auto" ? !!system : set.reduce);
 
