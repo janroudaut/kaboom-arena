@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -33,6 +33,11 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - A new fighter needs a `ROSTER` entry, a ladder, a `TEXT` entry, a portrait in `public/portraits/` and an `sw.js` entry; every relation role used in `KINDS` needs a `TEMPLATES` entry in `story.js` (the test enforces it). `look.js` `setSuits(cols)` overrides suit colours by player index for story fights; `toMenu()` resets it and colour-blind mode keeps priority.
 - UI rule: static screens, timers only while text types and during the continue countdown, no CSS animations. The pixel font (Press Start 2P, OFL, vendored) is only used on `#story`, story round banners and `#storyBtn`. Story navigation uses its own keydown handler and the pad callbacks in `main.js`.
 - Dev flags: `?story=fast` kills the bot at the start of each round and `?story=lose` kills the human (used to fast-forward a run in tests and screenshots).
+
+## 3D effects (`fx.js`, `render3d.js`)
+- `fx.js` is a pure, allocation-free observer (tests in `fx.test.mjs`): it diffs successive states and reports `reset`, `die`, `bomb`, `wall` and `pick`, so solo, host and guest animate the same way. The renderer derives death spins and ghosts, bomb drop/squash, wall crumble, item pops and the round-end hop from those events, and resets on a new round.
+- Everything extra is gated by `setStill` (reduce motion) and uses no timers; DLSS parody gags (toasts, "hallucinated" brick, re-render shimmer, stat line) are tuned with the `GAG` constants and run on accumulated game time, so pauses and hidden tabs do not advance them. The `MOBILE` flag halves pools and sparks.
+- Per-player `castShadow` is a whitelist (torso, head, legs, shoes, hands): do not re-add a `traverse`.
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).
