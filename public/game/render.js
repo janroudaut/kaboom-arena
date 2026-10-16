@@ -216,11 +216,12 @@ function hud(c, g) {
     if (e.i === g.me) { c.strokeStyle = "#ffd23c"; c.lineWidth = 1; c.beginPath(); c.arc(x + 4, 8, 5.5, 0, 7); c.stroke(); }
   };
   if (!tm) {
+    const wide = rows.length < 3;
     rows.forEach((e, k) => {
-      const x = 6 + k * 58;
+      const x = 6 + k * (wide ? 118 : 58);
       mark(e, x);
       c.fillStyle = e.i === g.me ? "#ffd23c" : "#fff";
-      c.fillText(`${e.name ? e.name.slice(0, 6) + " " : ""}${e.score}`, x + 11, 11);
+      c.fillText(`${e.name ? e.name.slice(0, wide ? 10 : 6) + " " : ""}${e.score}`, x + 11, 11);
     });
   } else {
     [...new Set(rows.map((e) => e.team))].forEach((t, k) => {
@@ -294,7 +295,7 @@ export function draw(c, g) {
   if (g.banner) {
     c.fillStyle = "#000b"; c.fillRect(0, CH / 2 - 16, CW, 32);
     c.fillStyle = "#ffd23c"; c.fillRect(0, CH / 2 - 16, CW, 1); c.fillRect(0, CH / 2 + 15, CW, 1);
-    c.fillStyle = "#fff"; c.font = "bold 10px monospace"; c.textAlign = "center";
+    c.fillStyle = "#fff"; c.font = g.retro ? '8px "Press Start 2P", monospace' : "bold 10px monospace"; c.textAlign = "center";
     c.fillText(g.banner, CW / 2, CH / 2 + 4);
   }
 }

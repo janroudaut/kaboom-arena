@@ -169,6 +169,54 @@
     .bomb { width: 44px; }
   }
 
+  @font-face { font-family: "Press Start 2P"; src: url(/game/vendor/press-start-2p.woff2) format("woff2"); font-display: swap; }
+  .h3-banner.retro { font: 20px/1.6 "Press Start 2P", monospace; }
+  #storyBtn { font: 12px/1.5 "Press Start 2P", monospace; padding-block: 16px; }
+  .screen#story { --c: #ffd23c; display: none; font: 10px/1.8 "Press Start 2P", monospace; color: #fff; overflow-y: auto; justify-content: safe center; gap: 12px; padding: 22px 14px; background: linear-gradient(#0d0b26, #1d1450); text-align: center; }
+  .screen#story.on { display: flex; }
+  #story::after { content: ""; position: fixed; inset: 0; pointer-events: none; background: repeating-linear-gradient(#0000 0 2px, #00000030 2px 4px); }
+  #story[data-v="vs"] { background: linear-gradient(105deg, color-mix(in srgb, var(--ca) 38%, #000) 0 50%, color-mix(in srgb, var(--cb) 38%, #000) 50%); }
+  #story[data-v="win"] { background: linear-gradient(#2e2200, #7a5200); }
+  #story[data-v="lose"] { background: linear-gradient(#240606, #560c0c); }
+  #story[data-v="end"] { background: linear-gradient(#08060f, #2a1250); }
+  #story button { min-width: 0; border: 0; border-radius: 0; font: inherit; text-transform: uppercase; letter-spacing: 0; filter: none; transition: none; }
+  #story button:active:not(:disabled) { transform: translateY(2px); }
+  #story h2 { margin: 0; font-weight: 400; }
+  .st-head { text-transform: uppercase; font-size: 12px; color: var(--yellow); text-shadow: 2px 2px #000; }
+  .px { background: #16133b; margin: 8px; padding: 14px; box-shadow: 0 -4px var(--b, #fff), 0 4px var(--b, #fff), -4px 0 var(--b, #fff), 4px 0 var(--b, #fff), 0 8px #000; }
+  .arc { margin: 8px; padding: 12px 18px; background: #e8453c; color: #fff; box-shadow: 0 -4px #fff, 0 4px #fff, -4px 0 #fff, 4px 0 #fff, 0 8px #000; cursor: pointer; }
+  .arc.alt { background: #2a2a5a; }
+  .arc:disabled { opacity: .45; }
+  .st-btns { display: flex; flex-wrap: wrap; justify-content: center; }
+  .st-wrap { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 20px; width: min(100%, 820px); }
+  .st-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: min(100%, 420px); }
+  .card { position: relative; padding: 0; background: #16133b; color: #fff; font-size: 8px; cursor: pointer; }
+  .card img, .vs img { display: block; width: 100%; height: auto; aspect-ratio: 1; image-rendering: pixelated; background: #000; }
+  .card span { display: block; padding: 6px 0; }
+  .card[aria-pressed="true"] { background: var(--c); color: #14141f; box-shadow: 0 -4px var(--c), 0 4px var(--c), -4px 0 var(--c), 4px 0 var(--c); }
+  .card.lock img { filter: brightness(0); }
+  .card i { position: absolute; top: 3px; right: 5px; font-style: normal; color: var(--yellow); text-shadow: 1px 1px #000; }
+  .st-info { flex: 1 1 260px; max-width: 380px; min-height: 190px; text-align: left; --b: var(--c); }
+  .st-info h2 { font-size: 14px; color: var(--c); margin-bottom: 4px; }
+  .st-info p { margin: 8px 0 0; }
+  .st-info small { color: #fffa; font-size: 8px; }
+  .dim { color: #fff9; font-size: 8px; }
+  .vs { display: flex; align-items: center; justify-content: center; gap: 8px; width: min(100%, 640px); }
+  .vs figure { margin: 0; flex: 0 1 220px; min-width: 0; }
+  .vs img { box-shadow: 0 -4px var(--c), 0 4px var(--c), -4px 0 var(--c), 4px 0 var(--c); }
+  .vs .flip img { transform: scaleX(-1); }
+  .vs figcaption { margin-top: 12px; font-size: 10px; }
+  .vs figcaption small { display: block; margin-top: 4px; font-size: 7px; color: #fffb; }
+  .big { text-transform: uppercase; font-size: clamp(22px, 8vw, 44px); color: var(--yellow); text-shadow: 3px 3px #e8453c, 6px 6px #000; }
+  .dlg { width: min(100%, 560px); text-align: left; }
+  .dlg p { margin: 0 0 12px; }
+  .dlg p:last-child { margin: 0; }
+  .who { display: block; margin-bottom: 4px; color: var(--c); }
+  .t.h { visibility: hidden; }
+  .one { width: min(60vw, 240px); }
+  .one img { display: block; width: 100%; height: auto; aspect-ratio: 1; image-rendering: pixelated; box-shadow: 0 -4px var(--c), 0 4px var(--c), -4px 0 var(--c), 4px 0 var(--c); }
+  .gold { color: var(--yellow); }
+  .red { color: #ff6b5e; }
 </style>
 </head>
 <body>
@@ -185,6 +233,7 @@
       <h1 class="logo"><span class="k">Kaboom</span><span class="a">Arena</span></h1>
     </div>
     <div class="menu-col">
+      <button id="storyBtn" class="btn-main">★ Story mode</button>
       <input id="nick" maxlength="12" placeholder="Your name (optional)" autocomplete="nickname" aria-label="Your name">
       <div class="label">Solo vs bots</div>
       <div class="solo">
@@ -211,6 +260,7 @@
     <div class="hint"><span>Fan-made tribute to Konami's Bomberman</span> · <span>not affiliated with Konami</span> · <a href="https://github.com/janroudaut/kaboom-arena" target="_blank" rel="noopener">Source on GitHub</a></div>
   </div>
 </div>
+<div id="story" class="screen"></div>
 <div id="settings" class="screen">
   <div class="menu-col">
     <h2>Settings</h2>

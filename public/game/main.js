@@ -5,11 +5,13 @@ import { createInput, merge, sources, clearBombs, labelOf } from "./input.js";
 import { joinRoom, newCode, cid } from "./net.js";
 import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
-import { teamInfo, view } from "./look.js";
+import { teamInfo, view, setSuits } from "./look.js";
 import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts, reduced } from "./settings.js";
 import { createHaptics, browserVibrate, browserRumble, observe } from "./haptics.js";
 import { setStill } from "./home.js";
 import { initHelp, initInstall, watchUpdates } from "./ux.js";
+import { createStoryUI } from "./storyui.js";
+import { BY_ID } from "./campaign.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c"), ctx = canvas.getContext("2d");
@@ -94,6 +96,7 @@ function toMenu(msg = "") {
   botMem = {};
   humans = [];
   feel = {};
+  setSuits(null);
   gnet = lastGrid = lastCfg = null;
   names = pnames = [];
   joined = subOk = resub = false;
@@ -107,20 +110,24 @@ function toMenu(msg = "") {
   show("menu");
 }
 
+const storyUi = createStoryUI({ root: $("story"), show: () => show("story"), fight: startStory, home: () => toMenu(), reduced: () => reduced(settings, motion.matches) });
+$("storyBtn").onclick = () => storyUi.open();
 const allInputs = () => merge(Object.keys(sources));
 
 const input = createInput(
   $("pad"),
   $("bombBtn"),
-  (name) => mode === "local-lobby" && joinLocal(name),
-  () => {},
+  (name) => (mode === "local-lobby" ? joinLocal(name) : name.startsWith("pad") && storyUi.press()),
+  () => {
+    for (const [n, src] of Object.entries(sources)) if (n.startsWith("pad") && (src.dx || src.dy)) storyUi.nav(src.dx, src.dy);
+  },
   () => setPause(!paused),
 );
 
 let paused = false, dirty = true;
 
 function setPause(on) {
-  if (on && mode !== "solo" && mode !== "local") return;
+  if (on && mode !== "solo" && mode !== "local" && mode !== "story") return;
   paused = on;
   $("pause").classList.toggle("on", on);
 }
@@ -132,7 +139,7 @@ document.addEventListener("visibilitychange", () => document.hidden && setPause(
 addEventListener("resize", () => (dirty = true));
 $("pauseBtn").onclick = () => setPause(true);
 $("resume").onclick = () => setPause(false);
-$("pauseQuit").onclick = () => toMenu();
+$("pauseQuit").onclick = () => leave();
 
 function joinLocal(name) {
   if (humans.includes(name) || humans.length >= 4) return;
@@ -145,24 +152,40 @@ function renderLocalLobby() {
   $("localStart").disabled = humans.length < 2;
 }
 
-function makeGame(n) {
-  const { opts, theme } = roundOpts(settings, n);
+const FAST = new URLSearchParams(location.search).get("story");
+
+function makeGame(n, story) {
+  const { opts, theme } = story ?? roundOpts(settings, n);
   const s = newGame(n, Date.now(), opts);
   s.cfg.theme = theme;
+  if (story && FAST) s.players[FAST === "lose" ? 0 : 1].alive = false;
   return s;
 }
 
-function startMatch(n) {
+const INTRO = 80;
+const roundBanner = (g) => `ROUND ${g.round} — FIGHT!`;
+
+function startStory(spec) {
+  const me = BY_ID[spec.id], foe = BY_ID[spec.foe];
+  mode = "story";
+  clearBombs();
+  setSuits([me.color, foe.color]);
+  startMatch(2, spec, [me.name, foe.name]);
+}
+
+function startMatch(n, story, storyNames) {
   const labels = mode === "local" || settings.cb ? PNUM : undefined;
   const who = mode === "local" ? humans.map(() => true) : mode === "host" ? slots.map(Boolean) : [true];
   game = {
-    s: makeGame(n), scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: settings.rounds,
-    names: displayNames(n, who, mode === "host" ? names : [myName()], labels),
+    s: makeGame(n, story), scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: story ? story.win : settings.rounds,
+    names: storyNames ?? displayNames(n, who, mode === "host" ? names : [myName()], labels),
+    story, retro: !!story, round: 1, intro: story ? INTRO : 0,
   };
+  if (story) game.banner = roundBanner(game);
   botMem = {};
   feel = {};
   sentGrid = "";
-  $("pauseBtn").hidden = mode !== "solo" && mode !== "local";
+  $("pauseBtn").hidden = mode !== "solo" && mode !== "local" && mode !== "story";
   show("game");
 }
 
@@ -172,18 +195,28 @@ function isBot(id) {
 }
 
 function tick() {
-  if (paused || !game || game.rematch || (mode !== "solo" && mode !== "host" && mode !== "local")) return;
+  if (paused || !game || game.rematch || (mode !== "solo" && mode !== "host" && mode !== "local" && mode !== "story")) return;
   const g = game, s = g.s;
   if (g.wait > 0) {
     if (--g.wait === 0) {
+      if (g.over && g.story) {
+        const ok = g.scores[0] > g.scores[1];
+        toMenu();
+        return storyUi.result(ok);
+      }
       if (g.over) { g.rematch = true; return; }
       g.banner = "";
-      g.s = makeGame(s.players.length);
+      g.s = makeGame(s.players.length, g.story);
       sentGrid = "";
+      if (g.story) { g.round++; g.banner = roundBanner(g); g.intro = INTRO; }
     }
     return;
   }
-  const allOut = mode === "solo" ? !s.players[0].alive : mode === "local" && s.players.every((p) => p.id >= humans.length || !p.alive);
+  if (g.intro > 0) {
+    if (--g.intro === 0) g.banner = "";
+    return;
+  }
+  const allOut = mode === "solo" || mode === "story" ? !s.players[0].alive : mode === "local" && s.players.every((p) => p.id >= humans.length || !p.alive);
   for (let k = 0; k < (allOut ? 3 : 1) && !s.done; k++) {
     const inputs = {};
     if (mode === "local") humans.forEach((n, i) => (inputs[i] = merge([n])));
@@ -191,7 +224,7 @@ function tick() {
     for (const p of s.players) {
       if (mode === "local" ? p.id < humans.length : p.id === 0) continue;
       if (isBot(p.id)) {
-        if (s.tick % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, settings.bot);
+        if (s.tick % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, g.story ? g.story.level : settings.bot);
         inputs[p.id] = { ...botMem[p.id] };
         if (botMem[p.id]) botMem[p.id].bomb = false;
       } else inputs[p.id] = inboxes[p.id].next();
@@ -203,9 +236,9 @@ function tick() {
   const tm = s.cfg.teams, who = (id) => (tm ? `Team ${teamInfo(tm[id]).name}` : g.names[id]);
   if (s.winnerTeam >= 0) s.players.forEach((p) => tm[p.id] === s.winnerTeam && g.scores[p.id]++);
   else if (s.winner >= 0) g.scores[s.winner]++;
-  const champ = g.scores.findIndex((x) => x >= settings.rounds);
+  const champ = g.scores.findIndex((x) => x >= g.win);
   g.over = champ >= 0;
-  g.banner = g.over ? `${who(champ)} wins the match!` : s.winner >= 0 ? `${who(s.winner)} wins the round` : "Draw";
+  g.banner = g.story ? (g.over ? (champ === 0 ? "VICTORY!" : "YOU LOSE") : s.winner === 0 ? "KABOOM!" : s.winner > 0 ? "OUCH!" : "DRAW!") : g.over ? `${who(champ)} wins the match!` : s.winner >= 0 ? `${who(s.winner)} wins the round` : "Draw";
   g.wait = 180;
 }
 
@@ -392,7 +425,13 @@ $("start").onclick = () => {
   room.send({ t: "start" });
   startMatch(4);
 };
-$("lobbyBack").onclick = $("quit").onclick = $("rematchMenu").onclick = () => (mode === "host" ? endMatch() : toMenu());
+const leave = () => {
+  const inStory = mode === "story";
+  toMenu();
+  if (inStory) storyUi.open();
+};
+$("quit").onclick = () => (mode === "story" ? leave() : mode === "host" ? endMatch() : toMenu());
+$("lobbyBack").onclick = $("rematchMenu").onclick = () => (mode === "host" ? endMatch() : toMenu());
 $("again").onclick = () => game?.rematch && mode !== "guest" && startMatch(game.s.players.length);
 $("copyLink").onclick = async () => {
   const link = $("inviteLink");
@@ -479,7 +518,7 @@ initHelp([$("helpBtn"), $("pauseHelp")]);
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest?.("button");
-  if (b && !b.closest("#settings")) b.blur();
+  if (b && !b.closest("#settings, #story")) b.blur();
 });
 
 function markSettings() {

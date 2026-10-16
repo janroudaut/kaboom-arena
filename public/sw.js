@@ -1,8 +1,9 @@
-const CACHE = "kaboom-v16";
+const CACHE = "kaboom-v17";
 const FILES = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png",
-  "/game/main.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js", "/game/look.js", "/game/settings.js", "/game/haptics.js", "/game/ux.js",
-  "/game/vendor/qrcode.mjs",
+  "/game/main.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js", "/game/look.js", "/game/settings.js", "/game/haptics.js", "/game/ux.js", "/game/campaign.js", "/game/story.js", "/game/storyui.js",
+  "/game/vendor/qrcode.mjs", "/game/vendor/press-start-2p.woff2",
+  ...["ignatius", "dynamita", "baron", "mama", "dolores", "tony", "fizzle", "kapow", "gunpowder"].map((id) => `/portraits/${id}.webp`),
   "/game/vendor/actioncable.esm.js", "/game/render3d.js", "/game/vendor/three.module.min.js",
   "/game/vendor/three-addons/postprocessing/EffectComposer.js", "/game/vendor/three-addons/postprocessing/RenderPass.js",
   "/game/vendor/three-addons/postprocessing/ShaderPass.js", "/game/vendor/three-addons/postprocessing/UnrealBloomPass.js",

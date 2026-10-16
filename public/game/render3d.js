@@ -390,13 +390,14 @@ export function createRenderer3D(canvas, hudParent) {
       ? `<b>DLSS 5 ON</b><br>Neural Faces™ · Frame Gen ×4<br>${Math.round(fps * 4)} FPS · AI res ${Math.round(scale * 100)}%`
       : `DLSS OFF · ${Math.round(fps)} FPS<br><small>click or press T to enable</small>`;
     const out = g.me >= 0 && !s.done && s.players[g.me]?.alive === false && !g.banner;
-    const key = scores + extra + badge + g.banner + out;
+    const key = scores + extra + badge + g.banner + out + !!g.retro;
     if (key === lastHud) return;
     lastHud = key;
     elScores.innerHTML = scores + extra;
     elBadge.innerHTML = badge;
     elBadge.className = `h3-badge ${dlss ? "on" : ""}`;
     elBanner.textContent = g.banner || "";
+    elBanner.className = g.retro ? "h3-banner retro" : "h3-banner";
     elBanner.style.display = g.banner ? "block" : "none";
     elSpec.style.display = out ? "block" : "none";
   }

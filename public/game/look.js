@@ -49,7 +49,14 @@ const PALETTES = {
   std: { suit: ["#f2f2f2", "#454556", "#e8453c", "#3c7be8"], dark: ["#b8b8c4", "#262633", "#a32a24", "#2452a8"] },
   cb: { suit: ["#f0e442", "#0072b2", "#d55e00", "#56b4e9"], dark: ["#a89f1c", "#00486f", "#8f3e00", "#2e7fae"] },
 };
-export const palette = () => (view.cb ? PALETTES.cb : PALETTES.std);
+const dim = (h) => `#${[1, 3, 5].map((i) => Math.round(parseInt(h.slice(i, i + 2), 16) * 0.65).toString(16).padStart(2, "0")).join("")}`;
+let custom = null;
+// Story mode: suit colours per player index (rest stays standard); colour-blind mode still wins.
+export const setSuits = (cols) => {
+  const n = cols?.length ?? 0;
+  custom = cols && { suit: [...cols, ...PALETTES.std.suit.slice(n)], dark: [...cols.map(dim), ...PALETTES.std.dark.slice(n)] };
+};
+export const palette = () => (view.cb ? PALETTES.cb : custom ?? PALETTES.std);
 
 const TEAMS_BY = {
   std: [{ name: "Gold", col: "#ffd23c" }, { name: "Cyan", col: "#38d6e8" }],

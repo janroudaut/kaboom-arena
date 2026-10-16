@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -27,6 +27,12 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - `haptics.js` is pure and injectable (tests in `haptics.test.mjs`): phone `navigator.vibrate` and gamepad rumble (`vibrationActuator.playEffect("dual-rumble")`, legacy `hapticActuators` fallback), throttled, gated by the `vibrate`/`rumble`/`intensity` settings. `observe(mem, state)` derives events from successive game states so it works the same for solo, host and guest; in local mode rumble goes to the affected player's pad only.
 - `settings.js` also holds `cb`, `reduce` (auto/on/off, see `reduced()`), `vibrate`, `rumble`, `intensity`; fields flagged `a11y: true` render in the "Accessibility & feedback" group. Reduce motion stops 3D camera shake and sparks (`r3.setStill`) and the home attract loop (`home.js` `setStill`); it adds no timers.
 - `ux.js`: tutorial overlay (`helpSeen` flag), `beforeinstallprompt` capture plus an iOS "Add to Home Screen" hint, and the "New version available" toast (relies on the service worker's `skipWaiting`/`clients.claim`, so Reload is just `location.reload()`).
+
+## Story mode
+- `campaign.js` (pure: roster, `RELATIONS`/`KINDS`, per-fighter `ladder`, `fightOf`, persistence with an injected storage), `story.js` (all text, relation templates, `banter(a, b)`), `storyui.js` (DOM screens: select, intro, VS, win, continue, ending, unlock) and `campaign.test.mjs`. `mode === "story"` reuses the solo flow with fixed rules (first to 2 rounds, sudden death, power-ups, friendly fire on); bot level and stage (layout/theme) come from the ladder; the boss fight uses a packed arena (`softDensity` 0.9). Progress lives in localStorage `story`.
+- A new fighter needs a `ROSTER` entry, a ladder, a `TEXT` entry, a portrait in `public/portraits/` and an `sw.js` entry; every relation role used in `KINDS` needs a `TEMPLATES` entry in `story.js` (the test enforces it). `look.js` `setSuits(cols)` overrides suit colours by player index for story fights; `toMenu()` resets it and colour-blind mode keeps priority.
+- UI rule: static screens, timers only while text types and during the continue countdown, no CSS animations. The pixel font (Press Start 2P, OFL, vendored) is only used on `#story`, story round banners and `#storyBtn`. Story navigation uses its own keydown handler and the pad callbacks in `main.js`.
+- Dev flags: `?story=fast` kills the bot at the start of each round and `?story=lose` kills the human (used to fast-forward a run in tests and screenshots).
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).
