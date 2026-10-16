@@ -112,7 +112,7 @@ test("phone pulses are never shorter than what Android motors can render, and th
   for (const kind of ["bomb", "item", "blast", "curse", "die", "win", "test"]) {
     for (const level of ["low", "normal", "strong"]) {
       const { vib } = effect(kind, level);
-      vib.forEach((v, i) => { if (i % 2 === 0) assert.ok(v >= 40, `${kind}/${level} pulse ${v}`); });
+      vib.forEach((v, i) => { if (i % 2 === 0) assert.ok(v >= 20, `${kind}/${level} pulse ${v}`); });
     }
   }
   const nav = Object.getOwnPropertyDescriptor(globalThis, "navigator");

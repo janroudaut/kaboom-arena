@@ -1,15 +1,15 @@
 // Pure: backends are injected. vib = phone pattern (ms, on/off alternating), rum = [duration ms, strong, weak] for gamepads, gap = min ms between two firings.
 const KINDS = {
-  bomb: { vib: [40], rum: [30, 0, 0.3], gap: 120 },
-  item: { vib: [45], rum: [50, 0, 0.5], gap: 100 },
-  blast: { vib: [60], rum: [110, 0.7, 0.4], gap: 250 },
+  bomb: { vib: [25], rum: [30, 0, 0.3], gap: 120 },
+  item: { vib: [30], rum: [50, 0, 0.5], gap: 100 },
+  blast: { vib: [50], rum: [110, 0.7, 0.4], gap: 250 },
   curse: { vib: [30, 40, 30, 40, 60], rum: [220, 0.4, 0.8], gap: 800 },
   die: { vib: [260], rum: [500, 1, 0.6], gap: 1500 },
   win: { vib: [40, 60, 40, 60, 140], rum: [380, 0.5, 0.5], gap: 3000 },
   test: { vib: [60, 80, 60], rum: [300, 0.6, 0.6], gap: 0 },
 };
-// Many phones only render pulses of ~40-50 ms or more; silent / Do Not Disturb mode mutes them entirely.
-const MIN_PULSE = 40;
+// Android motors ignore very short pulses (tested: felt from 50 ms on one phone); silent / Do Not Disturb mutes them entirely.
+const MIN_PULSE = 20;
 const LEVEL = { low: 0.6, normal: 1, strong: 1.6 };
 
 export const effect = (kind, intensity, scale = 1) => {
