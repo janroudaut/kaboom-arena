@@ -1,4 +1,4 @@
-const CACHE = "kaboom-v23";
+const CACHE = "kaboom-v24";
 const FILES = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png",
   "/game/main.js", "/game/nav.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js", "/game/look.js", "/game/settings.js", "/game/haptics.js", "/game/ux.js", "/game/campaign.js", "/game/story.js", "/game/storyui.js", "/game/director.js",
@@ -26,6 +26,18 @@ self.addEventListener("activate", (e) => {
       .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
+});
+
+// "Offline" setting: fetch whatever is still missing from the cache (lazy files included) and report back.
+self.addEventListener("message", (e) => {
+  if (e.data?.t !== "precache") return;
+  e.waitUntil((async () => {
+    const c = await caches.open(CACHE);
+    const missing = (await Promise.all(FILES.map(async (f) => ((await c.match(f)) ? null : f)))).filter(Boolean);
+    const done = await Promise.allSettled(missing.map((f) => c.add(f)));
+    const failed = done.filter((r) => r.status === "rejected").length;
+    e.source?.postMessage({ t: "precached", total: FILES.length, failed });
+  })());
 });
 
 // Network-first: modules always load as one consistent version; cache only serves offline.

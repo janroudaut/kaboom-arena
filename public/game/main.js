@@ -5,8 +5,8 @@ import { createInput, merge, sources, clearBombs, labelOf } from "./input.js";
 import { joinRoom, newCode, cid } from "./net.js";
 import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
-import { teamInfo, view, setSuits, palette } from "./look.js";
-import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts, reduced } from "./settings.js";
+import { teamInfo, view, setSuits, palette, humansOf, MODE_INFO, EVENT_INFO } from "./look.js";
+import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, sanitize, roundOpts, reduced } from "./settings.js";
 import { createHaptics, browserVibrate, browserRumble, observe, vibrationReport } from "./haptics.js";
 import { setStill } from "./home.js";
 import { initHelp, initInstall, watchUpdates } from "./ux.js";
@@ -45,13 +45,16 @@ function applyLook() {
   feel = {};
   view.cb = settings.cb;
   still = reduced(settings, motion.matches);
+  view.still = still;
   setStill(still);
   r3?.setStill(still);
   rf?.setStill(still);
+  const m = settings.mode;
+  $("soloLabel").textContent = m === "classic" ? "Solo vs bots" : m === "survival" ? "Solo · Survival vs waves" : `Solo · ${MODE_INFO[m].name}`;
   dirty = true;
 }
 motion.addEventListener?.("change", applyLook);
-let gnet = null, lastGrid = null, lastCfg = null, sentGrid = "", snapCount = 0, rtt = 0, pingTimer = 0;
+let gnet = null, lastGrid = null, lastCfg = null, lastFloor, hostRules = DEFAULTS, sentGrid = "", snapCount = 0, rtt = 0, pingTimer = 0;
 const GFX = ["classic", "3d", "dlss", "fps"];
 let gfx = "classic", r3 = null, rf = null;
 try { gfx = localStorage.getItem("gfx") || "classic"; } catch {}
@@ -150,7 +153,8 @@ function toMenu(msg = "") {
   feel = {};
   resetFeel();
   setSuits(null);
-  gnet = lastGrid = lastCfg = null;
+  gnet = lastGrid = lastCfg = lastFloor = null;
+  hostRules = DEFAULTS;
   names = pnames = [];
   joined = subOk = resub = false;
   lostAt = 0;
@@ -218,6 +222,15 @@ function makeGame(n, story) {
 
 const INTRO = 80;
 const roundBanner = (g) => `ROUND ${g.round} — FIGHT!`;
+const rulesText = (r) => [MODE_INFO[r.mode].name, r.tiles !== "off" && `${r.tiles} floor tiles`, r.chaos && "chaos events"].filter(Boolean).join(" · ");
+
+// Non-classic modes announce themselves with a short freeze; the banner reaches guests through the snapshot.
+function modeIntro(g) {
+  const m = g.s.cfg.mode;
+  if (g.story || !m) return;
+  g.banner = MODE_INFO[m].banner;
+  g.intro = INTRO;
+}
 
 function startStory(spec) {
   const me = BY_ID[spec.id], foe = BY_ID[spec.foe];
@@ -231,11 +244,12 @@ function startMatch(n, story, storyNames) {
   const labels = mode === "local" || settings.cb ? PNUM : undefined;
   const who = mode === "local" ? humans.map(() => true) : mode === "host" ? slots.map(Boolean) : [true];
   game = {
-    s: makeGame(n, story), scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: story ? story.win : settings.rounds,
+    s: makeGame(n, story), n, scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: story ? story.win : settings.rounds,
     names: storyNames ?? displayNames(n, who, mode === "host" ? names : [myName()], labels),
     story, retro: !!story, round: 1, intro: story ? INTRO : 0,
   };
   if (story) game.banner = roundBanner(game);
+  else modeIntro(game);
   botMem = {};
   feel = {};
   resetFeel();
@@ -265,9 +279,10 @@ function tick() {
       }
       if (g.over) { g.rematch = true; return; }
       g.banner = "";
-      g.s = makeGame(s.players.length, g.story);
+      g.s = makeGame(g.n, g.story);
       sentGrid = "";
       if (g.story) { g.round++; g.banner = roundBanner(g); g.intro = INTRO; }
+      else modeIntro(g);
     }
     return;
   }
@@ -283,7 +298,7 @@ function tick() {
     for (const p of s.players) {
       if (mode === "local" ? p.id < humans.length : p.id === 0) continue;
       if (isBot(p.id)) {
-        if (s.tick % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, g.story ? g.story.level : settings.bot);
+        if ((s.tick + p.id) % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, g.story ? g.story.level : settings.bot);
         inputs[p.id] = { ...botMem[p.id] };
         if (botMem[p.id]) botMem[p.id].bomb = false;
       } else inputs[p.id] = inboxes[p.id].next();
@@ -292,6 +307,13 @@ function tick() {
     clearBombs();
   }
   if (!s.done) return;
+  if (s.survival) {
+    const w = s.survival.wave, t = Math.floor(s.survival.t / 60);
+    g.over = true;
+    g.banner = w ? `Survived ${w} wave${w > 1 ? "s" : ""} · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}` : "Wiped out before wave 1";
+    g.wait = 180;
+    return;
+  }
   const tm = s.cfg.teams, who = (id) => (tm ? `Team ${teamInfo(tm[id]).name}` : g.names[id]);
   if (s.winnerTeam >= 0) s.players.forEach((p) => tm[p.id] === s.winnerTeam && g.scores[p.id]++);
   else if (s.winner >= 0) g.scores[s.winner]++;
@@ -315,12 +337,12 @@ function sendSnap() {
   room.send({ t: "snap", g: { s: packSnap(s, withGrid), a, scores, banner, r: !!game.rematch, w: settings.rounds } });
 }
 
-const pushLobby = () => room.send({ t: "lobby", slots, names });
+const pushLobby = () => room.send({ t: "lobby", slots, names, rules: { mode: settings.mode, tiles: settings.tiles, chaos: settings.chaos } });
 
 function renderLobby() {
   const list = displayNames(slots.length, slots.map(Boolean), names);
   $("lobbyList").replaceChildren(...list.map((n) => Object.assign(document.createElement("li"), { textContent: n })));
-  if (mode === "host") $("lobbyInfo").textContent = `${slots.length} player(s) – free slots will be bots`;
+  if (mode === "host") $("lobbyInfo").textContent = `${slots.length} player(s) – ${settings.mode === "survival" ? "humans vs waves, no bots" : "free slots will be bots"} · ${rulesText(settings)}`;
 }
 
 function onMsg(m) {
@@ -357,25 +379,27 @@ function onMsg(m) {
     slots = m.slots.slice(0, 4).map((c) => (typeof c === "string" ? c : null));
     names = Array.isArray(m.names) ? m.names.slice(0, 4).map(cleanName) : [];
     pnames = displayNames(4, [0, 1, 2, 3].map((i) => !!slots[i]), names, settings.cb ? PNUM : undefined);
+    hostRules = sanitize(m.rules);
     renderLobby();
-    $("lobbyInfo").textContent = "Waiting for the host to start…";
+    $("lobbyInfo").textContent = `Waiting for the host to start… · ${rulesText(hostRules)}`;
     if (!game) show("lobby");
   } else if (m.t === "pong" && m.to === cid && typeof m.ts === "number") {
     const now = performance.now() - m.ts;
     rtt = rtt ? rtt * 0.7 + now * 0.3 : now;
     $("ping").textContent = `${Math.round(rtt)} ms`;
   } else if (m.t === "snap") {
-    const s = unpackSnap(m.g?.s, lastGrid, lastCfg);
+    const s = unpackSnap(m.g?.s, lastGrid, lastCfg, lastFloor);
     const me = slots.indexOf(cid);
     if (!s || me < 0) return;
     lastGrid = s.grid;
     lastCfg = s.cfg;
+    lastFloor = s.floor;
     lastSnap = performance.now();
     clearLost();
     gnet ||= createGuestNet(me);
     gnet.onSnap(s, m.g.a?.[me], lastSnap);
     if (!game) show("game");
-    game = { s, scores: m.g.scores, banner: m.g.banner, me, names: pnames, rematch: !!m.g.r, win: Math.min(3, m.g.w | 0) };
+    game = { s, n: humansOf(s), scores: m.g.scores, banner: m.g.banner, me, names: pnames, rematch: !!m.g.r, win: Math.min(3, m.g.w | 0) };
   } else if (m.t === "end") toMenu();
 }
 
@@ -460,7 +484,7 @@ function openRoom(code, host) {
 }
 
 for (const b of document.querySelectorAll("[data-solo]")) {
-  b.onclick = () => { mode = "solo"; startMatch(1 + +b.dataset.solo); };
+  b.onclick = () => { mode = "solo"; startMatch(settings.mode === "survival" ? 1 : 1 + +b.dataset.solo); };
 }
 $("local").onclick = () => {
   mode = "local-lobby";
@@ -470,7 +494,7 @@ $("local").onclick = () => {
 };
 $("localStart").onclick = () => {
   mode = "local";
-  startMatch($("localBots").checked ? 4 : humans.length);
+  startMatch($("localBots").checked && settings.mode !== "survival" ? 4 : humans.length);
 };
 $("localBack").onclick = () => toMenu();
 $("create").onclick = () => openRoom(newCode(), true);
@@ -483,7 +507,7 @@ $("start").onclick = () => {
   slots.forEach((_, i) => i && (inboxes[i] = createInbox()));
   sentGrid = "";
   room.send({ t: "start" });
-  startMatch(4);
+  startMatch(settings.mode === "survival" ? slots.length : 4);
 };
 const leave = () => {
   const inStory = mode === "story";
@@ -492,7 +516,7 @@ const leave = () => {
 };
 $("quit").onclick = () => (mode === "story" ? leave() : mode === "host" ? endMatch() : toMenu());
 $("lobbyBack").onclick = $("rematchMenu").onclick = () => (mode === "host" ? endMatch() : toMenu());
-$("again").onclick = () => game?.rematch && mode !== "guest" && startMatch(game.s.players.length);
+$("again").onclick = () => game?.rematch && mode !== "guest" && startMatch(game.n);
 $("copyLink").onclick = async () => {
   const link = $("inviteLink");
   try {
@@ -542,7 +566,22 @@ function rumble(g) {
   }
 }
 
+let seenTick = -1, seenWave = -1, seenEv = null;
+
+function extraCalls(s) {
+  if (s.tick < seenTick) { seenWave = -1; seenEv = null; }
+  seenTick = s.tick;
+  const wave = s.survival ? s.survival.wave : -1, ev = s.event?.type ?? null;
+  const call = (key, text) => settings.announcer && fd.announcer.push(key, text, { prio: 2, still }, clock);
+  if (wave > 0 && seenWave >= 0 && wave > seenWave) call("wave", `WAVE ${wave}!`);
+  seenWave = wave;
+  if (ev && ev !== seenEv && EVENT_INFO[ev]) call("event", `${EVENT_INFO[ev].name}!`);
+  seenEv = ev;
+}
+
 function resetFeel() {
+  seenTick = seenWave = -1;
+  seenEv = null;
   fd.restart();
   ts = 1;
   hideRecap();
@@ -562,7 +601,7 @@ function dismissRecap() {
 }
 
 function fillRecap(el, g, over) {
-  const v = recapView(over ? fd.tracker.total() : fd.tracker.round(), g.s.players.length, g.names);
+  const v = recapView(over ? fd.tracker.total() : fd.tracker.round(), g.n, g.names);
   const head = Object.assign(document.createElement("h3"), { textContent: over ? "Match recap" : "Round recap" });
   const table = document.createElement("table");
   const row = (cells, tag, c) => {
@@ -592,7 +631,7 @@ function syncRecap(g) {
   const el = $("recap");
   el.classList.toggle("on", want);
   if (!want) return;
-  fillRecap(el, g, g.win > 0 && g.scores.some((x) => x >= g.win));
+  fillRecap(el, g, !!g.s.survival || (g.win > 0 && g.scores.some((x) => x >= g.win)));
   el.append(Object.assign(document.createElement("small"), { textContent: "Tap or press a key to continue" }));
 }
 
@@ -611,6 +650,7 @@ function feelStep(g) {
   fx.punch = fxOn;
   fx.chat = settings.announcer && !still && mode === "story";
   g.call = fd.update(g.s, clock, fx);
+  extraCalls(g.s);
   g.bub = fd.bub;
   g.clock = clock;
   g.ts = ts = fx.timeFx ? timeScale(fd, clock) : 1;

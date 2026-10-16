@@ -7,9 +7,9 @@ const rng = (seed) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294
 const wire = (o) => JSON.parse(JSON.stringify(o));
 
 // Host sim + guest predictor (player 1) over a simulated link; returns stats.
-function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds = 20, seed = 1, setup, held }) {
+function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds = 20, seed = 1, setup, held, opts }) {
   const rand = rng(seed);
-  const s = newGame(2, 7), inbox = createInbox();
+  const s = newGame(2, 7, opts), inbox = createInbox();
   s.grid = s.grid.map((g) => (g === 2 ? 0 : g));
   setup?.(s);
   const gnet = createGuestNet(1);
@@ -21,7 +21,7 @@ function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds =
     events.push({ at, fn });
   };
   const down = { at: 0 }, up = { at: 0 };
-  let now = 0, hostNext = 0, guestNext = 3, hostTicks = 0, guestTicks = 0, snaps = 0, lastGrid = null;
+  let now = 0, hostNext = 0, guestNext = 3, hostTicks = 0, guestTicks = 0, snaps = 0, lastGrid = null, lastCfg, lastFloor;
   let maxErr = 0, errSum = 0, errN = 0;
   const script = held ? [held] : [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1]];
   let cur = script[0], left = 0;
@@ -35,8 +35,8 @@ function simulate({ lag, jitter, loss = 0, reorder = false, bombs = 0, seconds =
       if (++hostTicks % 2 === 0) {
         const msg = wire({ s: packSnap(s, snaps++ % 30 === 0), a: [null, inbox.ack] });
         send(() => {
-          const u = unpackSnap(msg.s, lastGrid);
-          lastGrid = u.grid;
+          const u = unpackSnap(msg.s, lastGrid, lastCfg, lastFloor);
+          lastGrid = u.grid; lastCfg = u.cfg; lastFloor = u.floor;
           gnet.onSnap(u, msg.a[1], now);
           maxErr = Math.max(maxErr, gnet.err);
           errSum += gnet.err; errN++;
@@ -215,4 +215,47 @@ test("interpolation: a sliding bomb advances smoothly between snapshots", () => 
   const scs = [];
   for (let now = 100; now < 200; now += 10) scs.push(g.frame(now).bombs[0].sc);
   assert.ok(scs.every((v, i) => !i || v >= scs[i - 1]) && scs.at(-1) > 0, scs.join());
+});
+
+test("prediction: ice, conveyors and permanent frenzy stay in step with the host", () => {
+  const setup = (s) => {
+    s.floor = s.floor.map((c, i) => (c < 6 ? 0 : c));
+    for (let x = 1; x < 14; x++) for (let y = 1; y < 12; y++) if (s.grid[y * 15 + x] === 0 && y !== 1) s.floor[y * 15 + x] = (x + y) % 5 === 0 ? 1 : (x * 3 + y) % 7 === 0 ? 2 + ((x + y) % 4) : s.floor[y * 15 + x];
+    s.event = { type: "frenzy", t: 0, on: 1e9 };
+  };
+  for (const seed of [2, 8]) {
+    const r = simulate({ lag: 50, jitter: 30, seed, opts: { tiles: "many" }, setup, seconds: 15 });
+    assert.ok(r.maxErr < 24, `max error ${r.maxErr}`);
+    mustMove(r);
+    assert.deepEqual([r.own.x, r.own.y], [r.host.x, r.host.y]);
+  }
+});
+
+test("snapshots: floor, tiles, events, hill, potato and survival survive the wire; a tile-less round clears the floor", () => {
+  const wireFloor = (u) => (u.floor ? u.floor.join() : null);
+  const a = newGame(2, 5, { tiles: "many", chaos: true, mode: "hill" });
+  a.event = { type: "bombrain", t: 40, tiles: [[2, 2], [5, 5]] };
+  for (let i = 0; i < 100; i++) step(a, {});
+  const fa = unpackSnap(wire(packSnap(a, true)));
+  assert.equal(wireFloor(fa), a.floor.join());
+  assert.ok(a.floor.some((c) => c >= 10), "teleporter codes are two digits wide");
+  assert.deepEqual([fa.event, fa.hill, fa.score, fa.cfg.tiles, fa.cfg.mode], [a.event, a.hill, a.score, "many", "hill"]);
+  const lean = unpackSnap(wire(packSnap(a, false)), fa.grid, fa.cfg, fa.floor);
+  assert.equal(lean.floor, fa.floor);
+  const p = newGame(3, 5, { mode: "potato" });
+  assert.deepEqual(unpackSnap(wire(packSnap(p, true))).potato, p.potato);
+  const v = newGame(2, 5, { mode: "survival", tiles: "few" });
+  for (let i = 0; i < 70; i++) step(v, {});
+  const fv = unpackSnap(wire(packSnap(v, true)));
+  assert.deepEqual([fv.survival, fv.cfg.teams.length, fv.players.length], [v.survival, 14, 14]);
+  assert.deepEqual(fv.players, v.players);
+  const bytes = JSON.stringify(packSnap(v, true)).length;
+  assert.ok(bytes < 12000, `survival snapshot ${bytes} bytes`);
+  const plain = unpackSnap(wire(packSnap(newGame(2, 6), true)), fa.grid, fa.cfg, fa.floor);
+  assert.equal(plain.floor, undefined);
+  const next = unpackSnap(wire(packSnap(a, false)), fa.grid, fa.cfg, plain.floor);
+  assert.equal(next.floor, undefined);
+  const bad = wire(packSnap(a, true));
+  bad.fl = "z".repeat(10);
+  assert.equal(unpackSnap(bad).floor, undefined);
 });

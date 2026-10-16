@@ -57,7 +57,7 @@
   #quit { position: absolute; top: 6px; right: 6px; min-width: 0; padding: 6px 12px; background: #0008; }
   #c3 { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; image-rendering: auto; }
   #hud3 { position: absolute; inset: 0; pointer-events: none; font: 600 14px/1.3 system-ui, sans-serif; text-shadow: 0 1px 3px #000; }
-  .h3-scores { position: absolute; top: 10px; left: 12px; display: flex; gap: 14px; font-size: 18px; }
+  .h3-scores { position: absolute; top: 10px; left: 12px; right: 56px; display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 18px; }
   .h3-scores span { padding-left: 22px; position: relative; }
   .h3-scores span::before { content: ""; position: absolute; left: 0; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
   .h3-scores span.dead { opacity: .4; text-decoration: line-through; }
@@ -66,12 +66,19 @@
   .h3-scores .team > b { color: var(--c); }
   .h3-scores .me { text-decoration: underline; }
   .h3-curse { color: #d58cff; }
+  .h3-info { position: absolute; top: 38px; right: 12px; display: grid; justify-items: end; gap: 3px; font-size: 14px; }
+  .h3-info b { padding: 2px 8px; border-radius: 4px; background: #000a; color: #ff6a5c; }
+  .h3-info .h3-mode { color: #ffd23c; }
+  .h3-frenzy { position: absolute; inset: 0; box-shadow: inset 0 0 90px 10px #ff3d8a; opacity: 0; }
+  .h3-frenzy.warn { opacity: .55; }
+  .h3-frenzy.on { opacity: .3; }
   .h3-first { color: #fff9; font-size: 14px; }
   .h3-sudden { color: #ff5a4a; animation: blink .6s infinite alternate; }
   @keyframes blink { to { opacity: .3; } }
   .h3-badge { position: absolute; top: 44px; left: 12px; min-width: 0; padding: 8px 12px; text-align: left; pointer-events: auto; background: #000a; border: 1px solid #fff3; font-size: 12px; font-weight: 500; }
   .h3-badge.on { border-color: #76b900; color: #cfe8a0; box-shadow: 0 0 14px #76b90066; }
   .h3-badge.on b { color: #9be000; }
+  @media (max-width: 600px) { .h3-scores { font-size: 12px; gap: 0 10px; } .h3-scores span { padding-left: 17px; } .h3-scores span::before { width: 12px; height: 12px; top: 2px; } .h3-info { top: 124px; font-size: 11px; } .h3-badge { top: 64px; } }
   .h3-toast { position: absolute; top: 46px; right: 8px; max-width: 60vw; padding: 5px 10px; border-left: 3px solid #76b900; background: #000a; color: #cfe8a0; font-size: 12px; font-weight: 500; opacity: 0; transition: opacity .3s; }
   .h3-toast.on { opacity: 1; }
   .h3-stat { display: block; margin-top: 4px; font-size: 14px; color: #9be000; }
@@ -293,7 +300,7 @@
     <div class="menu-col">
       <button id="storyBtn" class="btn-main">★ Story mode</button>
       <input id="nick" maxlength="12" placeholder="Your name (optional)" autocomplete="nickname" aria-label="Your name">
-      <div class="label">Solo vs bots</div>
+      <div class="label" id="soloLabel">Solo vs bots</div>
       <div class="solo">
         <button data-solo="1"><b>1</b><small>bot</small></button>
         <button data-solo="2"><b>2</b><small>bots</small></button>
@@ -331,7 +338,7 @@
     <div id="a11yList" style="display:grid;gap:10px"></div>
     <button id="vibTest" class="alt chip">Test vibration</button>
     <div class="hint" id="vibStatus" role="status"></div>
-    <div class="hint">Teams need 4 players (P1 + P3 vs P2 + P4). Online: your settings apply when you host.</div>
+    <div class="hint">Teams need 4 players (P1 + P3 vs P2 + P4). Online: your settings apply when you host. Survival is 1-4 humans against waves of enemies (no bots to pick, no rounds: the score is the waves survived). King of the Hill and Hot Potato are played against bots.</div>
     <div class="row"><button id="setReset" class="alt">Reset to defaults</button><button id="setBack">Done</button></div>
   </div>
 </div>
@@ -380,6 +387,20 @@
     <ol class="steps" start="4">
       <li><span class="pic">☠</span><span><b>Last one standing wins.</b> After 90 s the arena closes in (sudden death).</span></li>
     </ol>
+    <div class="label">Floor tiles and events (optional)</div>
+    <ul class="keys">
+      <li><b>Ice</b> you keep sliding</li>
+      <li><b>Belts</b> arrows push you, bombs and items</li>
+      <li><b>Pads</b> stand still on one to jump to its twin</li>
+      <li><b>Spikes</b> dark, then yellow warning, then red: deadly</li>
+      <li><b>Chaos</b> bomb rain, item rain, quake, swap and frenzy are announced 1.5 s ahead</li>
+    </ul>
+    <div class="label">Game modes</div>
+    <ul class="keys">
+      <li><b>Hill</b> stand alone in the 3x3 zone to score: 30 points wins</li>
+      <li><b>Potato</b> the holder explodes when the fuse ends: touch someone to pass it</li>
+      <li><b>Survival</b> enemy waves with red rings: last as long as you can</li>
+    </ul>
     <div class="label">Controls</div>
     <ul class="keys">
       <li><b>P1</b> WASD / ZQSD + Space</li>

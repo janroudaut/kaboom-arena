@@ -6,12 +6,12 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { W, H, T, SUDDEN, FLAME, FUSE, END_DELAY } from "./sim.js";
+import { W, H, T, SUDDEN, FLAME, FUSE, END_DELAY, ICE, CONV, SPIKE, TELE, SPIKE_ON, SPIKE_WARN, POTATO_TICKS, spikeIn } from "./sim.js";
 import { ICONS } from "./render.js";
 import { esc } from "./lobby.js";
 import { createObserver } from "./fx.js";
 import { placeBubble } from "./director.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText } from "./look.js";
 
 const MOBILE = matchMedia("(pointer: coarse)").matches;
 const FLAME_LIGHTS = MOBILE ? 2 : 6, MAX_PARTICLES = 400;
@@ -102,17 +102,19 @@ const PG = {
   lash: new THREE.BoxGeometry(0.07, 0.012, 0.01),
   ring: new THREE.TorusGeometry(0.4, 0.045, 8, 32),
   bubble: new THREE.SphereGeometry(0.62, 24, 16),
+  horn: new THREE.ConeGeometry(0.06, 0.22, 8),
 };
+const HORN = new THREE.MeshStandardMaterial({ color: 0xefe6d0, roughness: 0.5 });
 const BLACK = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 });
 const GLOVE = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.5 });
 const BEZEL = new THREE.MeshStandardMaterial({ color: 0x20202c, roughness: 0.4 });
 const BULB = new THREE.MeshStandardMaterial({ color: 0xe8453c, emissive: 0xe8453c, emissiveIntensity: 0.6 });
 const GLINT = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-function makePlayer(id, skullMat, auraMat, tagMat) {
+function makePlayer(id, skullMat, auraMat, tagMat, foe) {
   const root = new THREE.Group(), body = new THREE.Group();
   root.add(body);
-  const suit = new THREE.MeshStandardMaterial({ color: palette().suit[id], roughness: 0.35, metalness: 0.15 });
+  const suit = new THREE.MeshStandardMaterial({ color: foe ? foeLook().suit : palette().suit[id], roughness: 0.35, metalness: 0.15 });
   const skin = new THREE.MeshPhysicalMaterial({ color: 0xffd9b0, roughness: 0.5 });
   const add = (geo, mat, x, y, z, parent = body) => {
     const m = new THREE.Mesh(geo, mat);
@@ -135,6 +137,7 @@ function makePlayer(id, skullMat, auraMat, tagMat) {
   head.add(ant);
   add(PG.stalk, BLACK, 0, 0.05, 0, ant);
   add(PG.bulb, BULB, 0, 0.12, 0, ant);
+  if (foe) for (const s of [-1, 1]) { const h = add(PG.horn, HORN, s * 0.2, 0.22, 0, head); h.rotation.z = -s * 0.5; }
 
   const pivot = (x, y, parent) => {
     const p = new THREE.Group();
@@ -171,7 +174,7 @@ function makePlayer(id, skullMat, auraMat, tagMat) {
   }
   neural.visible = false;
 
-  const ring = new THREE.Mesh(PG.ring, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const ring = new THREE.Mesh(PG.ring, new THREE.MeshBasicMaterial({ color: foe ? foeLook().ring : 0xffffff }));
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.04;
   const bubble = new THREE.Mesh(PG.bubble, new THREE.MeshPhysicalMaterial({ color: 0x5fe0ff, emissive: 0x2090c0, emissiveIntensity: 0.5, transparent: true, opacity: 0.28, roughness: 0.1, depthWrite: false }));
@@ -188,7 +191,7 @@ function makePlayer(id, skullMat, auraMat, tagMat) {
   for (const o of [ring, bubble, skull, aura, tag]) o.visible = false;
   root.add(ring, bubble, skull, aura, tag);
 
-  root.userData = { body, torso, head, ant, eyes, glints, legs, arms, neural, skin, suit, ring, bubble, skull, aura, tag, lastWalk: 0, lean: 0, dieT: -1 };
+  root.userData = { body, torso, head, ant, eyes, glints, legs, arms, neural, skin, suit, ring, bubble, skull, aura, tag, lastWalk: 0, lean: 0, dieT: -1, foe };
   root.scale.setScalar(1.15);
   return root;
 }
@@ -332,6 +335,7 @@ export function createRenderer3D(canvas, hudParent) {
   fingers.visible = false;
   scene.add(fingers);
 
+
   function applyTheme(th) {
     if (th.key === themeKey) return;
     themeKey = th.key;
@@ -386,6 +390,229 @@ export function createRenderer3D(canvas, hudParent) {
   scene.add(sparks);
   const spark = { vel: new Float32Array(MAX_PARTICLES * 3), life: new Float32Array(MAX_PARTICLES), next: 0 };
 
+  // ---- extras: floor tiles, chaos telegraphs, hill zone, hot potato (all hidden unless the state has them)
+  const FLOOR_CAP = 40, flatPlane = new THREE.PlaneGeometry(0.96, 0.96).rotateX(-Math.PI / 2);
+  const floorGrp = new THREE.Group();
+  floorGrp.visible = false;
+  scene.add(floorGrp);
+  const iceTex = canvasTexture(64, 64, (c) => {
+    c.fillStyle = FLOORC.ice.base; c.fillRect(0, 0, 64, 64);
+    c.fillStyle = FLOORC.ice.hi;
+    for (const [x, y, l] of [[10, 44, 22], [30, 24, 16], [40, 48, 12]]) for (let i = 0; i < l; i++) c.fillRect(x + i, y - i, 3, 3);
+    c.fillStyle = FLOORC.ice.lo; c.fillRect(0, 60, 64, 4); c.fillRect(60, 0, 4, 64);
+  });
+  const beltTex = canvasTexture(64, 64, (c) => {
+    c.fillStyle = FLOORC.conv.base; c.fillRect(0, 0, 64, 64);
+    c.fillStyle = FLOORC.conv.edge; c.fillRect(0, 0, 6, 64); c.fillRect(58, 0, 6, 64);
+    c.fillStyle = FLOORC.conv.arrow;
+    for (const y of [4, 36]) for (let r = 0; r < 12; r++) { c.fillRect(32 - 2 - r * 2, y + r * 2, 5, 4); c.fillRect(32 - 2 + r * 2, y + r * 2, 5, 4); }
+  });
+  beltTex.wrapS = beltTex.wrapT = THREE.RepeatWrapping;
+  const decal = (map, extra) => new THREE.MeshStandardMaterial({ map, polygonOffset: true, polygonOffsetFactor: -2, ...extra });
+  const iceMesh = new THREE.InstancedMesh(flatPlane, decal(iceTex, { roughness: 0.08, metalness: 0.05 }), FLOOR_CAP);
+  const beltMesh = new THREE.InstancedMesh(flatPlane, decal(beltTex, { roughness: 0.7 }), FLOOR_CAP);
+  const SPIKE_CAP = 8;
+  const plateMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.05, 0.9), new THREE.MeshStandardMaterial({ roughness: 0.6 }), SPIKE_CAP);
+  const tipMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(0.09, 0.45, 6).translate(0, 0.225, 0), new THREE.MeshBasicMaterial(), SPIKE_CAP * 4);
+  for (const m of [iceMesh, beltMesh, plateMesh, tipMesh]) { m.count = 0; m.frustumCulled = false; floorGrp.add(m); }
+  for (const m of [iceMesh, beltMesh, plateMesh]) m.receiveShadow = true;
+  const glintMat = new THREE.SpriteMaterial({ map: canvasTexture(32, 32, (c) => { c.fillStyle = "#fff"; c.fillRect(15, 2, 2, 28); c.fillRect(2, 15, 28, 2); c.fillRect(13, 13, 6, 6); }), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const glints = Array.from({ length: 12 }, () => { const o = new THREE.Sprite(glintMat.clone()); o.scale.setScalar(0.3); o.visible = false; floorGrp.add(o); return o; });
+  const padGrp = new THREE.Group();
+  floorGrp.add(padGrp);
+  const padRings = [0.34, 0.25, 0.16].map((r) => new THREE.TorusGeometry(r, 0.022, 6, 28).rotateX(Math.PI / 2));
+  const padBase = new THREE.CircleGeometry(0.42, 24).rotateX(-Math.PI / 2), padDot = new THREE.SphereGeometry(0.05, 8, 6);
+  const padBaseMat = new THREE.MeshStandardMaterial({ color: 0x14141f, roughness: 0.5 });
+  const padMats = FLOORC.tele.map((col) => new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 1.4 }));
+  const C_RET = new THREE.Color(0x6a6a7a), C_WARN = [new THREE.Color(FLOORC.spike.warn), new THREE.Color(0xff7a2a)], C_HOT = new THREE.Color(FLOORC.spike.hot);
+  const P_RET = new THREE.Color(0x2e2e3a), P_WARN = new THREE.Color(0x5a4210), P_HOT = new THREE.Color(0x5a1812);
+  const fl = { ref: null, key: "", ice: [], belt: [], spikes: [], pads: [] };
+  const TIP = [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]];
+
+  function syncFloor(s) {
+    const f = s.floor;
+    if (f === fl.ref) return;
+    fl.ref = f;
+    const key = f ? f.join("") : "";
+    if (key === fl.key) return;
+    fl.key = key;
+    fl.ice.length = fl.belt.length = fl.spikes.length = 0;
+    for (const o of fl.pads) padGrp.remove(o);
+    fl.pads.length = 0;
+    floorGrp.visible = !!f;
+    if (!f) return;
+    f.forEach((code, i) => {
+      if (code === ICE && fl.ice.length < FLOOR_CAP) fl.ice.push(i);
+      else if (code >= CONV && code < CONV + 4 && fl.belt.length < FLOOR_CAP) fl.belt.push(i);
+      else if (code === SPIKE && fl.spikes.length < SPIKE_CAP) fl.spikes.push(i);
+      else if (code >= TELE && fl.pads.length < 8) {
+        const k = (code - TELE) % padMats.length, g = new THREE.Group(), x = (i % W) + 0.5, z = Math.floor(i / W) + 0.5;
+        g.position.set(x, 0.02, z);
+        g.add(new THREE.Mesh(padBase, padBaseMat));
+        for (let r = 0; r <= k && r < 3; r++) g.add(new THREE.Mesh(padRings[r], padMats[k])).position.y = 0.01;
+        const dot = new THREE.Mesh(padDot, padMats[k]);
+        dot.position.y = 0.06;
+        g.add(dot);
+        g.userData = { dot, ph: i };
+        padGrp.add(g);
+        fl.pads.push(g);
+      }
+    });
+    fl.ice.forEach((i, j) => { dummy.position.set((i % W) + 0.5, 0.015, Math.floor(i / W) + 0.5); dummy.rotation.set(0, 0, 0); dummy.updateMatrix(); iceMesh.setMatrixAt(j, dummy.matrix); });
+    fl.belt.forEach((i, j) => { dummy.position.set((i % W) + 0.5, 0.016, Math.floor(i / W) + 0.5); dummy.rotation.set(0, -(f[i] - CONV) * Math.PI / 2, 0); dummy.updateMatrix(); beltMesh.setMatrixAt(j, dummy.matrix); });
+    dummy.rotation.set(0, 0, 0);
+    iceMesh.count = fl.ice.length; beltMesh.count = fl.belt.length;
+    iceMesh.instanceMatrix.needsUpdate = beltMesh.instanceMatrix.needsUpdate = true;
+    plateMesh.count = fl.spikes.length; tipMesh.count = fl.spikes.length * 4;
+  }
+
+  function updateFloor(s) {
+    if (!s.floor) return;
+    if (fl.belt.length && !still) beltTex.offset.y = -((clk * 1.1) % 1);
+    fl.ice.forEach((_, j) => {
+      const o = glints[j % glints.length], i = fl.ice[j];
+      o.visible = true;
+      o.position.set((i % W) + 0.7, 0.12, Math.floor(i / W) + 0.3);
+      o.material.opacity = still ? 0.8 : Math.max(0, Math.sin(clk * 2.2 + j * 1.9)) ** 6;
+    });
+    for (let j = fl.ice.length; j < glints.length; j++) glints[j].visible = false;
+    for (const g of fl.pads) {
+      const a = still ? g.userData.ph : clk * 2.4 + g.userData.ph;
+      g.userData.dot.position.set(Math.cos(a) * 0.26, 0.06, Math.sin(a) * 0.26);
+    }
+    if (!fl.spikes.length) return;
+    fl.spikes.forEach((i, j) => {
+      const ph = spikePhase(s, i), cx = (i % W) + 0.5, cz = Math.floor(i / W) + 0.5;
+      const sy = ph === 2 ? 1.05 : ph === 1 ? 0.3 + 0.5 * (1 - spikeIn(s, i) / (SPIKE_ON - SPIKE_WARN)) : 0.2;
+      plateMesh.setColorAt(j, ph === 2 ? P_HOT : ph === 1 ? P_WARN : P_RET);
+      dummy.position.set(cx, 0.025, cz); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+      plateMesh.setMatrixAt(j, dummy.matrix);
+      const col = ph === 2 ? C_HOT : ph === 1 ? C_WARN[still || s.tick % 8 < 4 ? 0 : 1] : C_RET;
+      TIP.forEach(([dx, dz], k) => {
+        dummy.position.set(cx + dx, 0.05, cz + dz); dummy.scale.set(1, sy, 1); dummy.updateMatrix();
+        tipMesh.setMatrixAt(j * 4 + k, dummy.matrix);
+        tipMesh.setColorAt(j * 4 + k, col);
+      });
+    });
+    dummy.scale.set(1, 1, 1);
+    plateMesh.instanceMatrix.needsUpdate = tipMesh.instanceMatrix.needsUpdate = true;
+    if (plateMesh.instanceColor) plateMesh.instanceColor.needsUpdate = tipMesh.instanceColor.needsUpdate = true;
+  }
+
+  const zoneFill = new THREE.PlaneGeometry(3, 3).rotateX(-Math.PI / 2), zoneBar = [[3.1, 0.08, 0, -1.5], [3.1, 0.08, 0, 1.5], [0.08, 3.1, -1.5, 0], [0.08, 3.1, 1.5, 0]];
+  function makeZone(col, opacity) {
+    const g = new THREE.Group(), fill = new THREE.Mesh(zoneFill, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity, depthWrite: false }));
+    const mat = new THREE.MeshBasicMaterial({ color: col });
+    g.add(fill);
+    for (const [w, d, x, z] of zoneBar) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, d), mat); b.position.set(x, 0.03, z); g.add(b); }
+    g.visible = false;
+    g.userData = { fill, mat };
+    scene.add(g);
+    return g;
+  }
+  const hillZ = makeZone(FLOORC.hill, 0.22), hillNext = makeZone(FLOORC.next, 0.1);
+  const HOT_RED = new THREE.Color(0xe8453c), GOLD_C = new THREE.Color(FLOORC.hill);
+
+  function updateHill(s) {
+    const h = s.hill;
+    hillZ.visible = !!h;
+    hillNext.visible = !!(h && Array.isArray(h.next) && (still || Math.floor(clk * 4) % 3));
+    if (!h) return;
+    let n = 0;
+    for (const p of s.players) if (p.alive && Math.abs(Math.floor(p.x / T) - h.x) <= 1 && Math.abs(Math.floor(p.y / T) - h.y) <= 1) n++;
+    hillZ.position.set(h.x + 0.5, 0.03, h.y + 0.5);
+    hillZ.userData.mat.color.copy(n > 1 ? HOT_RED : GOLD_C);
+    hillZ.userData.fill.material.color.copy(n > 1 ? HOT_RED : GOLD_C);
+    hillZ.userData.fill.material.opacity = n ? 0.5 : 0.32;
+    if (hillNext.visible) hillNext.position.set(h.next[0] + 0.5, 0.035, h.next[1] + 0.5);
+  }
+
+  const markMat = new THREE.MeshBasicMaterial({ transparent: true }), markRing = new THREE.TorusGeometry(0.42, 0.04, 6, 24).rotateX(Math.PI / 2);
+  const markBomb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), new THREE.MeshBasicMaterial({ color: 0x14141c }));
+  const markGemMat = new THREE.MeshBasicMaterial({ color: 0xffe14a }), markCrackMat = new THREE.MeshBasicMaterial({ color: 0x1c120a });
+  const marks = Array.from({ length: 8 }, () => {
+    const g = new THREE.Group(), bomb = markBomb.clone(), gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.14), markGemMat), crack = new THREE.Group();
+    for (const r of [0.6, -0.6]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.03, 0.07), markCrackMat); b.rotation.y = r; crack.add(b); }
+    g.add(new THREE.Mesh(markRing, markMat), bomb, gem, crack);
+    g.userData = { bomb, gem, crack };
+    g.visible = false;
+    scene.add(g);
+    return g;
+  });
+  const swapMat = new THREE.MeshBasicMaterial({ color: 0xc06bff }), swapRing = new THREE.TorusGeometry(0.6, 0.05, 6, 28).rotateX(Math.PI / 2);
+  const swapRings = [0, 1].map(() => { const m = new THREE.Mesh(swapRing, swapMat); m.visible = false; scene.add(m); return m; });
+  const swapLine = new THREE.Line(new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3)), new THREE.LineBasicMaterial({ color: 0xc06bff, transparent: true, opacity: 0.6 }));
+  swapLine.frustumCulled = false;
+  swapLine.visible = false;
+  scene.add(swapLine);
+  let markCol = "";
+
+  function updateEvent(s) {
+    const e = s.event, info = e && EVENT_INFO[e.type], tiles = info && Array.isArray(e.tiles) ? e.tiles : [];
+    const lit = !e || still || e.t % 16 < 11;
+    if (info && info.col !== markCol) { markCol = info.col; markMat.color.set(info.col); }
+    marks.forEach((m, i) => {
+      const t = tiles[i];
+      m.visible = Array.isArray(t) && !!lit;
+      if (!m.visible) return;
+      const u = m.userData, quake = e.type === "quake";
+      m.position.set(t[0] + 0.5, quake ? 1 : 0.06, t[1] + 0.5);
+      m.scale.setScalar(still ? 1 : 1 + 0.12 * Math.sin(clk * 8));
+      u.bomb.visible = e.type === "bombrain"; u.gem.visible = e.type === "itemrain"; u.crack.visible = quake;
+      u.bomb.position.y = 0.16; u.gem.position.y = 0.4 + (still ? 0 : Math.sin(clk * 4) * 0.06); u.crack.position.y = 0.02;
+    });
+    const sw = e?.type === "swap" && s.players[e.a]?.alive && s.players[e.b]?.alive;
+    for (let k = 0; k < 2; k++) {
+      const p = sw && s.players[k ? e.b : e.a], r = swapRings[k];
+      r.visible = !!p && !!lit;
+      if (p) r.position.set(p.x / T, 0.06, p.y / T);
+    }
+    swapLine.visible = !!sw;
+    if (sw) {
+      const a = s.players[e.a], b = s.players[e.b], pos = swapLine.geometry.attributes.position;
+      pos.setXYZ(0, a.x / T, 0.5, a.y / T); pos.setXYZ(1, b.x / T, 0.5, b.y / T);
+      pos.needsUpdate = true;
+    }
+  }
+
+  const potatoGrp = new THREE.Group();
+  potatoGrp.visible = false;
+  scene.add(potatoGrp);
+  const potatoMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10).scale(1.2, 0.9, 1), new THREE.MeshStandardMaterial({ color: 0xd9a24e, roughness: 0.7 }));
+  const potatoSpark = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd23c }));
+  const potatoAura = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color: 0xff8a2a, opacity: 0.5, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+  potatoAura.scale.setScalar(1.9);
+  potatoAura.position.y = 0.7;
+  const potatoRing = new THREE.Mesh(PG.ring, new THREE.MeshBasicMaterial({ color: 0xff8a2a }));
+  potatoRing.rotation.x = Math.PI / 2;
+  potatoRing.position.y = 0.05;
+  potatoMesh.position.y = potatoSpark.position.y = 1.85;
+  const barBg = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x000000, opacity: 0.75, transparent: true, depthTest: false }));
+  const barFill = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x7bd34a, depthTest: false }));
+  barBg.renderOrder = 10; barFill.renderOrder = 11;
+  barBg.scale.set(0.9, 0.14, 1);
+  barBg.position.y = barFill.position.y = 2.25;
+  potatoGrp.add(potatoAura, potatoRing, potatoMesh, potatoSpark, barBg, barFill);
+  const BAR_OK = new THREE.Color(0x7bd34a), BAR_MID = new THREE.Color(0xffb02a), BAR_LOW = new THREE.Color(0xff3b30);
+
+  function updatePotato(s, dt) {
+    const po = s.potato, h = po && s.players[po.holder];
+    potatoGrp.visible = !!h?.alive;
+    if (!potatoGrp.visible) return;
+    const f = Math.max(0, Math.min(1, po.t / POTATO_TICKS)), x = h.x / T, z = h.y / T, flash = !still && f < 0.25 && s.tick % 8 < 4;
+    potatoGrp.position.set(x, 0, z);
+    potatoAura.material.opacity = flash ? 0.8 : 0.5;
+    potatoAura.material.color.setHex(flash ? 0xff3b30 : 0xff8a2a);
+    potatoRing.scale.setScalar(still ? 1 : 1 + 0.08 * Math.sin(clk * 8));
+    potatoMesh.position.y = 1.85 + (still ? 0 : Math.sin(clk * 5) * 0.05);
+    potatoSpark.position.set(0.2, potatoMesh.position.y + 0.2, 0);
+    potatoSpark.visible = s.tick % 6 < 4;
+    barFill.scale.set(0.84 * f + 0.001, 0.08, 1);
+    barFill.position.x = -0.42 * (1 - f);
+    barFill.material.color.copy(f > 0.5 ? BAR_OK : f > 0.25 ? BAR_MID : BAR_LOW);
+    if (!still && Math.random() < dt * (6 + 50 * (1 - f))) emit(x + 0.2, potatoMesh.position.y + 0.2, z, 1, GOLD, 1.6, 0.5);
+  }
+
   const ghostTex = canvasTexture(64, 64, (c) => {
     c.strokeStyle = "#ffd23c"; c.lineWidth = 4;
     c.beginPath(); c.ellipse(32, 8, 12, 4, 0, 0, 7); c.stroke();
@@ -413,9 +640,9 @@ export function createRenderer3D(canvas, hudParent) {
 
   const hud = document.createElement("div");
   hud.id = "hud3";
-  hud.innerHTML = '<div class="h3-scores"></div><button class="h3-badge"></button><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div><div class="h3-call"></div><div class="h3-bub"></div><div class="h3-bub"></div>';
+  hud.innerHTML = '<div class="h3-scores"></div><div class="h3-info"></div><div class="h3-frenzy"></div><button class="h3-badge"></button><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div><div class="h3-call"></div><div class="h3-bub"></div><div class="h3-bub"></div>';
   hudParent.appendChild(hud);
-  const [elScores, elBadge, elToast, elBanner, elSpec, elCall, ...elBub] = hud.children;
+  const [elScores, elInfo, elFrenzy, elBadge, elToast, elBanner, elSpec, elCall, ...elBub] = hud.children;
   const [elBannerText, elStat] = elBanner.children;
 
   let dlss = true, scale = MOBILE ? 0.7 : 1, w = 1, h = 1, shake = 0, still = false;
@@ -423,7 +650,7 @@ export function createRenderer3D(canvas, hudParent) {
   const MIN_SCALE = MOBILE ? 0.4 : 0.5;
   let frames = 0, acc = 0, fps = 60, lastNow = performance.now(), lastScale = lastNow;
   const seen = new Set();
-  let lastHud = "", lastBanner = "", statN = 0;
+  let lastHud = "", lastBanner = "", statN = 0, frenzyCls = "";
   let clk = 0, dlssT = 0, nextToast = between(GAG.toast) / 2, toastHide = 0, nextHallu = between(GAG.halluc) / 2, halluEnd = 0, halluStart = 0, halluIdx = 0, halluCell = -1;
   let curS = null, colDirty = false, shownCall = null, pun = null;
   const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3(), spot = {};
@@ -568,6 +795,7 @@ export function createRenderer3D(canvas, hudParent) {
     renderer.toneMappingExposure = on ? 1.3 : 1.15;
     for (const l of rimLights) l.visible = on;
     for (const p of players) {
+      if (!p) continue;
       p.userData.neural.visible = on;
       p.userData.head.scale.setScalar(on ? 1.1 : 1);
       p.userData.eyes.forEach((e) => e.scale.setScalar(on ? 1.5 : 1));
@@ -579,7 +807,7 @@ export function createRenderer3D(canvas, hudParent) {
 
   function updateHud(g, now) {
     const s = g.s, tm = teamsOf(s);
-    const one = (e) => `<span style="--c:${palette().suit[e.i]}" data-n="${view.cb ? e.i + 1 : ""}" class="${e.alive ? "" : "dead"} ${e.i === g.me ? "me" : ""}">${esc(e.name)} ${tm ? "" : e.score}${e.i === g.me ? " (you)" : ""}</span>`;
+    const one = (e) => `<span style="--c:${palette().suit[e.i]}" data-n="${view.cb ? e.i + 1 : ""}" class="${e.alive ? "" : "dead"} ${e.i === g.me ? "me" : ""}">${esc(e.name)} ${tm || e.score < 0 ? "" : e.score}${e.pts >= 0 ? `·${e.pts}` : ""}${e.i === g.me ? " (you)" : ""}</span>`;
     const rows = hudEntries(g);
     const scores = tm
       ? [...new Set(rows.map((e) => e.team))].map((t) => {
@@ -589,7 +817,9 @@ export function createRenderer3D(canvas, hudParent) {
       : rows.map(one).join("");
     const me = g.me >= 0 ? s.players[g.me] : null;
     const cur = me?.alive ? curseText(me) : "";
-    const sudden = s.tick >= SUDDEN - 300 && s.cfg?.suddenDeath !== false ? `<b class="h3-sudden">${s.tick >= SUDDEN ? "SUDDEN DEATH" : "SUDDEN DEATH SOON"}</b>` : g.win ? `<b class="h3-first">first to ${g.win}</b>` : "";
+    const sudden = s.tick >= SUDDEN - 300 && s.cfg?.suddenDeath !== false ? `<b class="h3-sudden">${s.tick >= SUDDEN ? "SUDDEN DEATH" : "SUDDEN DEATH SOON"}</b>` : g.win && !s.survival ? `<b class="h3-first">first to ${g.win}</b>` : "";
+    const mt = modeText(s), et = eventText(s);
+    const info = (mt ? `<b class="h3-mode">${esc(mt)}</b>` : "") + (et ? `<b class="h3-event" style="color:${EVENT_INFO[s.event.type].col}">${esc(et)}</b>` : "");
     const extra = sudden + (cur ? `<b class="h3-curse">${cur}</b>` : "");
     const live = `${Math.round(fps * 4)} FPS · AI res ${Math.round(scale * 100)}%`;
     const ticks = Math.floor(dlssT / GAG.tickEvery);
@@ -599,10 +829,11 @@ export function createRenderer3D(canvas, hudParent) {
     const out = g.me >= 0 && !s.done && s.players[g.me]?.alive === false && !g.banner;
     if (g.banner !== lastBanner) { lastBanner = g.banner; statN = 23 + ((Math.random() * 390) | 0); }
     const stat = dlss && !g.retro && g.banner && (s.end >= 0 || s.done) ? `DLSS 5 improved your gameplay by ${statN}%` : "";
-    const key = scores + extra + badge + g.banner + stat + out + !!g.retro;
+    const key = scores + extra + info + badge + g.banner + stat + out + !!g.retro;
     if (key === lastHud) return;
     lastHud = key;
     elScores.innerHTML = scores + extra;
+    elInfo.innerHTML = info;
     elBadge.innerHTML = badge;
     elBadge.className = `h3-badge ${dlss ? "on" : ""}`;
     elBannerText.textContent = g.banner || "";
@@ -665,8 +896,10 @@ export function createRenderer3D(canvas, hudParent) {
     const s = g.s, tm = teamsOf(s);
     curS = s;
     applyTheme(themeOf(s.cfg));
+    const nHum = humansOf(s);
     s.players.forEach((p, i) => {
-      if (!players[i]) { players[i] = makePlayer(i, itemMats[7], auraMat, tagMats[i]); scene.add(players[i]); setDlss(dlss); }
+      if (players[i] && players[i].userData.foe !== (i >= nHum)) { scene.remove(players[i]); players[i] = null; }
+      if (!players[i] && !p.dormant) { players[i] = makePlayer(i, itemMats[7], auraMat, tagMats[i], i >= nHum); scene.add(players[i]); setDlss(dlss); }
     });
     observe(s, onEvent);
 
@@ -725,7 +958,9 @@ export function createRenderer3D(canvas, hudParent) {
 
     const winT = s.end >= 0 ? (END_DELAY - s.end) / 60 : -1;
     s.players.forEach((p, i) => {
-      const m = players[i], u = m.userData;
+      const m = players[i];
+      if (!m) return;
+      const u = m.userData;
       if (!p.alive) {
         const dying = u.dieT >= 0 && u.dieT < FX.death;
         m.visible = dying;
@@ -738,11 +973,16 @@ export function createRenderer3D(canvas, hudParent) {
         }
         return;
       }
+      if (u.dieT >= 0) { u.dieT = -1; m.scale.setScalar(1.15); }
       m.visible = true;
-      u.tag.visible = view.cb;
-      if (u.pal !== palette()) { u.pal = palette(); u.suit.color.set(u.pal.suit[i]); }
-      u.ring.visible = !!tm;
-      if (tm) u.ring.material.color.set(teamInfo(tm[i]).col);
+      u.tag.visible = view.cb && !u.foe;
+      if (u.pal !== palette() || u.cb !== view.cb) {
+        u.pal = palette(); u.cb = view.cb;
+        u.suit.color.set(u.foe ? foeLook().suit : u.pal.suit[i]);
+        if (u.foe) u.ring.material.color.set(foeLook().ring);
+      }
+      u.ring.visible = u.foe || !!tm;
+      if (tm && !u.foe) u.ring.material.color.set(teamInfo(tm[i]).col);
       u.bubble.visible = p.shield > 0 && !(p.shield < 60 && p.shield % 10 < 5);
       u.skull.visible = u.aura.visible = !!p.curse;
       u.skull.position.y = 1.9 + Math.sin(now / 200) * 0.06;
@@ -869,6 +1109,14 @@ export function createRenderer3D(canvas, hudParent) {
       o.position.set(it.x + 0.5, 0.6 + Math.sin(now / 300 + it.x) * 0.1, it.y + 0.5);
       o.scale.set(0.85 * (still ? 1 : 0.75 + 0.25 * Math.abs(Math.cos(now / 500 + it.x))), 0.85, 1);
     });
+
+    syncFloor(s);
+    updateFloor(s);
+    updateHill(s);
+    updateEvent(s);
+    updatePotato(s, dt);
+    const e = s.event, fcls = e?.type === "frenzy" ? (e.on > 0 ? "on" : still || e.t % 16 < 11 ? "warn" : "") : "";
+    if (fcls !== frenzyCls) { frenzyCls = fcls; elFrenzy.className = `h3-frenzy ${fcls}`; }
 
     const base = camera.userData.base;
     shake *= 0.9;

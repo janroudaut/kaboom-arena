@@ -5,13 +5,13 @@ import { W, H, T, blast } from "./sim.js";
 // Nothing allocates per call except when an event fires.
 
 const N = W * H, MAXB = 32, SHIELD = 6, SKULL = 7;
-const zero = () => [0, 0, 0, 0];
+const zero = () => new Array(16).fill(0);
 export const newStats = () => ({ bombs: zero(), kills: zero(), own: zero(), items: zero(), walls: zero() });
 
 // on(kind, a, b, c): "reset"; "bomb" (owner); "blast" (bombs, walls); "die" (victim, killer, -); "pick" (id, type);
 // "close" (id); "sudden"; "decide" (winner); "done". killer === victim means own bomb, -1 unknown (sudden death crush).
 export function createTracker() {
-  const grid = new Uint8Array(N), occ = new Uint8Array(N), item = new Int8Array(N), fl = new Uint8Array(N), nf = new Uint8Array(N), own = new Uint8Array(N);
+  const grid = new Uint8Array(N), occ = new Uint8Array(N), item = new Int8Array(N), fl = new Uint8Array(N), nf = new Uint8Array(N), own = new Uint16Array(N);
   const pb = new Int16Array(MAXB * 5), alive = [true, true, true, true];
   let npb = 0, tick = -1, n = 0, end = -1, done = false, sd = 0, round = newStats(), total = newStats(), counted = false;
 
@@ -39,8 +39,8 @@ export function createTracker() {
         // ponytail: blasts are computed on the previous grid with every previous bomb as a blocker; chain order is not replayed.
         for (const [cx, cy] of blast({ grid, bombs: objs }, x, y, pb[k * 5 + 3])) {
           const i = cy * W + cx;
-          if (grid[i] === 2 && s.grid[i] === 0 && !own[i]) { round.walls[o]++; wallsOut++; }
-          own[i] |= 1 << o;
+          if (grid[i] === 2 && s.grid[i] === 0 && !own[i]) { if (o >= 0) round.walls[o]++; wallsOut++; }
+          if (o >= 0) own[i] |= 1 << o;
         }
       }
       if (bombsOut) on("blast", bombsOut, wallsOut);
@@ -57,7 +57,7 @@ export function createTracker() {
       }
 
       for (const b of s.bombs) {
-        if (!(b.dx || b.dy) && !occ[b.y * W + b.x]) { round.bombs[b.owner]++; on("bomb", b.owner); }
+        if (b.owner >= 0 && !(b.dx || b.dy) && !occ[b.y * W + b.x]) { round.bombs[b.owner]++; on("bomb", b.owner); }
       }
 
       for (let i = 0; i < N; i++) {

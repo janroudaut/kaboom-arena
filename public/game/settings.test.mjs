@@ -50,3 +50,18 @@ test("game feel settings: on by default, validated, listed in their own group", 
   assert.deepEqual(sanitize({ announcer: "off", slowmo: 0, recap: null }), DEFAULTS);
   assert.deepEqual(FIELDS.filter((f) => f.feel).map((f) => f.key), ["announcer", "slowmo", "recap"]);
 });
+
+test("extras settings: mode, tiles and chaos are validated and reach newGame", () => {
+  assert.deepEqual([DEFAULTS.mode, DEFAULTS.tiles, DEFAULTS.chaos], ["classic", "off", false]);
+  assert.deepEqual(sanitize({ mode: "survival", tiles: "many", chaos: true }), { ...DEFAULTS, mode: "survival", tiles: "many", chaos: true });
+  assert.deepEqual(sanitize({ mode: "__proto__", tiles: "lots", chaos: "yes" }), DEFAULTS);
+  assert.deepEqual(FIELDS.find((f) => f.key === "mode").opts.map(([v]) => v), ["classic", "hill", "potato", "survival"]);
+  const plain = newGame(4, 3, roundOpts(DEFAULTS, 4).opts);
+  assert.deepEqual(plain, newGame(4, 3, roundOpts(DEFAULTS, 4, () => 0).opts));
+  assert.equal(plain.floor, undefined);
+  const hill = newGame(2, 3, roundOpts({ ...DEFAULTS, mode: "hill", tiles: "few", chaos: true, sudden: true }, 2).opts);
+  assert.ok(hill.hill && hill.floor && hill.event === null);
+  assert.equal(hill.cfg.suddenDeath, false);
+  const surv = newGame(2, 3, roundOpts({ ...DEFAULTS, mode: "survival", ff: true }, 2).opts);
+  assert.deepEqual([surv.cfg.friendlyFire, surv.players.length], [false, 14]);
+});

@@ -10,17 +10,28 @@ const GHOST_TTL = 60, BUFFER = 30;
 export const packInput = ({ dx = 0, dy = 0, bomb }) => dx + 1 + 3 * (dy + 1) + (bomb ? 9 : 0);
 const unpackInput = (c) => ({ dx: (c % 3) - 1, dy: Math.floor((c % 9) / 3) - 1, bomb: c >= 9 });
 
+// The static floor travels with the grid as one base-36 character per tile (null when the round has none).
 export function packSnap(s, withGrid) {
-  const { hidden, grid, flames, rs, cfg, ...rest } = s;
-  return { ...rest, g: withGrid ? grid.join("") : undefined, cfg: withGrid ? cfg : undefined, f: flames.map((f) => [f.x, f.y, f.t]) };
+  const { hidden, grid, flames, rs, cfg, floor, ...rest } = s;
+  return {
+    ...rest, g: withGrid ? grid.join("") : undefined, cfg: withGrid ? cfg : undefined,
+    fl: withGrid ? (floor ? floor.map((c) => c.toString(36)).join("") : null) : undefined, f: flames.map((f) => [f.x, f.y, f.t]),
+  };
 }
 
-export function unpackSnap(p, prevGrid, prevCfg) {
+export function unpackSnap(p, prevGrid, prevCfg, prevFloor) {
   if (!Array.isArray(p?.players) || !Array.isArray(p.f) || !Array.isArray(p.bombs) || !Array.isArray(p.items)) return null;
   const grid = typeof p.g === "string" ? Array.from(p.g, Number) : prevGrid;
   if (!grid || grid.length !== 195) return null;
-  const { g, f, cfg, ...rest } = p;
-  return { ...rest, grid, cfg: cfg ?? prevCfg, flames: f.map(([x, y, t]) => ({ x, y, t })) };
+  const { g, f, cfg, fl, ...rest } = p;
+  let floor = prevFloor;
+  if (typeof p.g === "string") {
+    floor = typeof fl === "string" && fl.length === 195 ? Array.from(fl, (c) => parseInt(c, 36)) : undefined;
+    if (floor?.some((c) => !(c >= 0 && c < 36))) floor = undefined;
+  }
+  const out = { ...rest, grid, cfg: cfg ?? prevCfg, flames: f.map(([x, y, t]) => ({ x, y, t })) };
+  if (floor) out.floor = floor;
+  return out;
 }
 
 // Host side: replays each guest's per-tick inputs in order, one per sim tick. Missing ticks repeat the held

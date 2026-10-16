@@ -5,6 +5,8 @@ import {
   EVENT_WARN, FRENZY_TICKS, HILL_EVERY, HILL_GOAL, HILL_TIME, POTATO_TICKS, POTATO_COOL, SURV_CAP, SURV_EVERY, spikeIn, EVENTS,
 } from "./sim.js";
 import { think } from "./ai.js";
+import { createTracker, recapView } from "./director.js";
+import { hudEntries, teamsOf, humansOf, isFoe, spikePhase, eventText, modeText, modeOf } from "./look.js";
 
 const cx = (t) => t * T + T / 2;
 const tileOf = (v) => Math.floor(v / T);
@@ -499,4 +501,49 @@ test("performance: 60 s of play with every extra enabled", () => {
   const t1 = performance.now();
   for (let i = 0; i < 3600 && !q.done; i++) step(q, {});
   assert.ok((performance.now() - t1) < 1000, "bare step stays far under a second per 1000 ticks");
+});
+
+test("look: spike phases follow spikeIn, event and mode lines, unknown values are ignored", () => {
+  const s = newGame(2, 3, { tiles: "many" });
+  const i = s.floor.indexOf(SPIKE), seen = new Set();
+  for (let k = 0; k < SPIKE_CYCLE; k++, s.tick++) {
+    const ph = spikePhase(s, i);
+    assert.equal(ph === 2, spikeIn(s, i) === 0);
+    seen.add(ph);
+  }
+  assert.equal(seen.size, 3);
+  assert.equal(eventText({ event: { type: "bombrain", t: 61 } }), "BOMB RAIN 2s");
+  assert.equal(eventText({ event: { type: "frenzy", t: 0, on: 300 } }), "FRENZY 5s");
+  assert.deepEqual(["", "", ""], [eventText({}), eventText({ event: null }), eventText({ event: { type: "future", t: 5 } })]);
+  assert.equal(modeText({ hill: { t: 900 } }), "HILL MOVES 15s");
+  assert.equal(modeText({ potato: { t: 59 } }), "POTATO 1s");
+  assert.equal(modeText({ survival: { wave: 0, next: 60 } }), "WAVE 1 IN 1s");
+  assert.equal(modeText({ survival: { wave: 3, next: 600 } }), "WAVE 3 · NEXT 10s");
+  assert.equal(modeText({}), "");
+  assert.equal(modeOf({ mode: "constructor" }), "classic");
+  assert.equal(modeOf({ mode: "hill" }), "hill");
+});
+
+test("survival: HUD rows, teams, recap and tracker only know the humans; owner -1 bombs are ignored", () => {
+  const s = newGame(2, 4, { mode: "survival" });
+  s.grid.fill(0);
+  const g = { s, scores: [0, 0], names: ["A", "B"], me: 0 };
+  assert.deepEqual([humansOf(s), teamsOf(s), hudEntries(g).length, isFoe(s, s.players[2]), isFoe(s, s.players[1])], [2, null, 2, true, false]);
+  assert.ok(hudEntries(g).every((e) => e.score === -1));
+  assert.equal(recapView(createTracker().round(), 2, g.names).rows.length, 2);
+  const h = newGame(2, 4, { mode: "hill" });
+  h.hill.score[1] = 7;
+  assert.deepEqual(hudEntries({ s: h, scores: [1, 0] }).map((e) => [e.score, e.pts]), [[1, 0], [0, 7]]);
+  const tr = createTracker(), ev = [];
+  const on = (k, a) => ev.push([k, a]);
+  const p = newGame(2, 4, { mode: "potato" });
+  p.grid.fill(0);
+  tr.update(p, on);
+  p.bombs.push({ x: 6, y: 6, owner: -1, t: 2, range: 3, pass: [] });
+  step(p, {}); tr.update(p, on);
+  for (let i = 0; i < 4; i++) { step(p, {}); tr.update(p, on); }
+  const st = tr.round();
+  assert.ok(Object.values(st).every((a) => a.every((v) => v === 0)), JSON.stringify(st));
+  assert.ok(!ev.some(([k]) => k === "bomb"));
+  assert.ok(!Object.keys(st.bombs).some((k) => k === "-1"));
 });

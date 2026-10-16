@@ -1,4 +1,4 @@
-import { W, KICK_EVERY } from "./sim.js";
+import { W, KICK_EVERY, spikeIn, SPIKE_ON, SPIKE_WARN } from "./sim.js";
 
 // ground/speck: 2 checker shades; hard: [base, hi, lo, face, faceHi, faceLo, stud]; soft: [base, brick, highlight].
 // d3: ground colours + speckle, hard colour/metalness, soft [base, hue, sat, light], background, hemisphere [sky, ground, k], sun [colour, k].
@@ -44,7 +44,7 @@ for (const [key, t] of Object.entries(THEMES)) t.key = key;
 export const themeOf = (cfg) => (Object.hasOwn(THEMES, cfg?.theme) ? THEMES[cfg.theme] : THEMES.grass);
 
 // Colour-blind mode (Okabe-Ito based) is a flag set by main.js; both renderers read colours through palette()/teamInfo().
-export const view = { cb: false };
+export const view = { cb: false, still: false };
 const PALETTES = {
   std: { suit: ["#f2f2f2", "#454556", "#e8453c", "#3c7be8"], dark: ["#b8b8c4", "#262633", "#a32a24", "#2452a8"] },
   cb: { suit: ["#f0e442", "#0072b2", "#d55e00", "#56b4e9"], dark: ["#a89f1c", "#00486f", "#8f3e00", "#2e7fae"] },
@@ -63,15 +63,68 @@ const TEAMS_BY = {
   cb: [{ name: "Pink", col: "#cc79a7" }, { name: "Green", col: "#009e73" }],
 };
 export const teamInfo = (t) => { const l = view.cb ? TEAMS_BY.cb : TEAMS_BY.std; return l[t] ?? l[0]; };
-export const teamsOf = (s) => (Array.isArray(s?.cfg?.teams) ? s.cfg.teams : null);
+// Survival teams (humans vs enemy slots) are not shown as teams: enemies get their own look.
+export const teamsOf = (s) => (Array.isArray(s?.cfg?.teams) && s.cfg.mode !== "survival" ? s.cfg.teams : null);
+
+// Participants who can win rounds: all players, except the enemy slots of survival.
+export const humansOf = (s) => s?.cfg?.humans ?? s?.players?.length ?? 0;
+export const isFoe = (s, p) => p.id >= humansOf(s);
+const FOE = { std: { suit: "#9c1f3a", dark: "#5e1124", ring: "#ff3b30" }, cb: { suit: "#7a3fb0", dark: "#46216a", ring: "#ffffff" } };
+export const foeLook = () => (view.cb ? FOE.cb : FOE.std);
+
+// Floor/hazard/mode colours shared by both renderers. Teleporter pairs also differ by ring count, spikes by tip height.
+export const FLOORC = {
+  ice: { base: "#8fd3ff", hi: "#effaff", lo: "#4fa8e0" },
+  conv: { base: "#3c3c4c", edge: "#24242f", arrow: "#ffd23c" },
+  tele: ["#c06bff", "#2ee6a6", "#ff9a3c", "#ff6ab0"],
+  spike: { plate: "#2e2e3a", tip: "#b8b8c8", warn: "#ffb02a", hot: "#ff3b30" },
+  hill: "#ffd23c", next: "#ffffff", potato: "#ff8a2a",
+};
+export const EVENT_INFO = {
+  bombrain: { name: "BOMB RAIN", col: "#ff4a3c" }, itemrain: { name: "ITEM RAIN", col: "#4ade80" }, frenzy: { name: "FRENZY", col: "#ff3d8a" },
+  quake: { name: "QUAKE", col: "#d4a060" }, swap: { name: "SWAP", col: "#c06bff" },
+};
+export const MODE_INFO = {
+  classic: { name: "Classic" },
+  hill: { name: "King of the Hill", banner: "KING OF THE HILL" },
+  potato: { name: "Hot Potato", banner: "HOT POTATO" },
+  survival: { name: "Survival", banner: "SURVIVAL" },
+};
+export const modeOf = (cfg) => (Object.hasOwn(MODE_INFO, cfg?.mode) ? cfg.mode : "classic");
+
+// 0 retracted, 1 telegraph, 2 deadly; spikeIn counts down to the deadly window.
+export function spikePhase(s, i) {
+  const v = spikeIn(s, i);
+  return v === 0 ? 2 : v <= SPIKE_ON - SPIKE_WARN ? 1 : 0;
+}
+
+const secs = (t) => Math.max(1, Math.ceil((t | 0) / 60));
+
+// HUD line for the running chaos event ("" when none).
+export function eventText(s) {
+  const e = s?.event, info = e && EVENT_INFO[e.type];
+  return info ? `${info.name} ${secs(e.on > 0 ? e.on : e.t)}s` : "";
+}
+
+// HUD line for the active mode ("" in classic).
+export function modeText(s) {
+  if (s?.survival) return `WAVE ${s.survival.wave || "1 IN"}${s.survival.wave ? " · NEXT" : ""} ${secs(s.survival.next)}s`;
+  if (s?.hill) return `HILL MOVES ${secs(s.hill.t)}s`;
+  if (s?.potato) return `POTATO ${secs(s.potato.t)}s`;
+  return "";
+}
 
 const CURSE_NAMES = { slow: "SLOW", fast: "HYPER", reverse: "REVERSED", nobomb: "NO BOMBS", auto: "BOMB SPAM" };
 export const curseText = (p) => (p?.curse ? `${CURSE_NAMES[p.curse.type] ?? "CURSED"} ${Math.ceil((p.curse.t | 0) / 60)}s` : "");
 
 // HUD rows in display order (team members grouped when teams are on).
+// score is -1 when wins do not apply (survival); pts are the hill points.
 export function hudEntries(g) {
-  const tm = teamsOf(g.s);
-  const rows = g.s.players.map((p, i) => ({ i, alive: p.alive, name: g.names?.[i] ?? "", score: Number(g.scores?.[i]) | 0, team: tm ? tm[i] : -1 }));
+  const tm = teamsOf(g.s), n = humansOf(g.s), surv = !!g.s.survival, hill = g.s.hill?.score;
+  const rows = [];
+  g.s.players.forEach((p, i) => {
+    if (i < n) rows.push({ i, alive: p.alive, name: g.names?.[i] ?? "", score: surv ? -1 : Number(g.scores?.[i]) | 0, pts: hill ? hill[i] | 0 : -1, team: tm ? tm[i] : -1 });
+  });
   return tm ? rows.sort((a, b) => a.team - b.team || a.i - b.i) : rows;
 }
 

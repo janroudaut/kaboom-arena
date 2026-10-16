@@ -1,6 +1,6 @@
-import { W, H, T, SUDDEN } from "./sim.js";
+import { W, H, T, SUDDEN, ICE, CONV, SPIKE, TELE, POTATO_TICKS, HILL_GOAL } from "./sim.js";
 import { placeBubble } from "./director.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText } from "./look.js";
 
 export const CW = W * T, CH = H * T + 16;
 export const NAMES = ["White", "Black", "Red", "Blue"];
@@ -53,6 +53,73 @@ function sprites(th) {
       c.fillStyle = "#0003"; c.fillRect(0, T - 1, T, 1); c.fillRect(T - 1, 0, 1, T);
     }),
   });
+}
+
+// Floor art is theme independent and built once. Conveyor strips scroll: the window slides over a repeating chevron pattern.
+let FLOOR = null;
+function floorSprites() {
+  const F = FLOORC;
+  return (FLOOR ??= {
+    ice: sprite(T, T, (c) => {
+      c.fillStyle = F.ice.base; c.fillRect(0, 0, T, T);
+      c.fillStyle = F.ice.lo; c.fillRect(0, T - 2, T, 2); c.fillRect(T - 2, 0, 2, T);
+      c.fillStyle = F.ice.hi; c.fillRect(0, 0, T, 1); c.fillRect(0, 0, 1, T);
+      for (const [x, y, l] of [[3, 10, 5], [8, 5, 4], [10, 11, 3]]) for (let i = 0; i < l; i++) c.fillRect(x + i, y - i, 1, 1);
+    }),
+    star: sprite(5, 5, (c) => { c.fillStyle = "#fff"; c.fillRect(2, 0, 1, 5); c.fillRect(0, 2, 5, 1); }),
+    belt: [0, 1, 2, 3].map((d) => {
+      const up = sprite(T, T + 8, (c) => {
+        c.fillStyle = F.conv.base; c.fillRect(0, 0, T, T + 8);
+        c.fillStyle = F.conv.edge; c.fillRect(0, 0, 2, T + 8); c.fillRect(T - 2, 0, 2, T + 8);
+        c.fillStyle = F.conv.arrow;
+        for (let y = 0; y < T + 8; y += 8) for (let r = 0; r < 5; r++) { c.fillRect(7 - r, y + 2 + r, 2, 2); c.fillRect(7 + r, y + 2 + r, 2, 2); }
+      });
+      if (d === 0) return up;
+      const w = d === 2 ? T : T + 8, h = d === 2 ? T + 8 : T;
+      return sprite(w, h, (c) => { c.translate(w / 2, h / 2); c.rotate((d * Math.PI) / 2); c.drawImage(up, -up.width / 2, -up.height / 2); });
+    }),
+    pad: F.tele.map((col, k) => sprite(T, T, (c) => {
+      disc(c, 8, 8, 7, "#14141f");
+      c.strokeStyle = col; c.lineWidth = 1.5;
+      for (let r = 0; r <= k; r++) { c.beginPath(); c.arc(8, 8, 6 - r * 2, 0, 7); c.stroke(); }
+      disc(c, 8, 8, 1.2, col);
+    })),
+    spike: [0, 1, 2, 3].map((ph) => sprite(T, T, (c) => {
+      const tip = [null, F.spike.warn, "#ff7a2a", F.spike.hot][ph];
+      c.fillStyle = ph ? tip : F.spike.plate; c.fillRect(1, 1, T - 2, T - 2);
+      c.fillStyle = [F.spike.plate, "#4a3610", "#4a3610", "#4a1410"][ph]; c.fillRect(2, 2, T - 4, T - 4);
+      for (const [x, y] of [[3, 4], [10, 4], [3, 10], [10, 10]]) {
+        if (!ph) { c.fillStyle = "#1a1a22"; c.fillRect(x + 1, y + 1, 2, 2); continue; }
+        c.fillStyle = tip;
+        if (ph === 3) c.fillRect(x + 1, y - 2, 1, 2);
+        c.fillRect(x + 1, y, 1, 1); c.fillRect(x, y + 1, 3, 2);
+        if (ph === 3) c.fillRect(x, y, 3, 1);
+        c.fillStyle = ph === 3 ? "#ffd8c8" : "#fff2b0"; c.fillRect(x + 1, ph === 3 ? y - 2 : y, 1, 1);
+      }
+    })),
+  });
+}
+
+function floorTile(c, f, px, py, i, s) {
+  const F = floorSprites(), still = view.still;
+  if (f === ICE) {
+    c.drawImage(F.ice, px, py);
+    if (still || (s.tick + i * 17) % 100 < 14) c.drawImage(F.star, px + 9, py + 2);
+  } else if (f >= CONV && f < CONV + 4) {
+    const d = f - CONV, ph = still ? 0 : (s.tick >> 1) % 8, belt = F.belt[d];
+    if (d === 0) c.drawImage(belt, 0, ph, T, T, px, py, T, T);
+    else if (d === 2) c.drawImage(belt, 0, 8 - ph, T, T, px, py, T, T);
+    else c.drawImage(belt, d === 1 ? 8 - ph : ph, 0, T, T, px, py, T, T);
+  } else if (f >= TELE) {
+    const k = (f - TELE) % FLOORC.tele.length;
+    c.drawImage(F.pad[k], px, py);
+    const a = still ? 0 : s.tick / 12 + i;
+    c.fillStyle = FLOORC.tele[k];
+    c.fillRect(px + 8 + Math.round(Math.cos(a) * 5), py + 8 + Math.round(Math.sin(a) * 5), 1, 1);
+  } else if (f === SPIKE) {
+    const ph = spikePhase(s, i);
+    c.drawImage(F.spike[ph === 1 && !still && s.tick % 8 < 4 ? 2 : ph === 2 ? 3 : ph], px, py);
+  }
 }
 
 const shadow = sprite(T, T, (c) => { c.fillStyle = "#0004"; c.fillRect(0, 0, T, 4); });
@@ -162,15 +229,21 @@ function tag(c, n, x, y) {
   c.fillStyle = "#fff"; c.fillText(n, x, y);
 }
 
-function player(c, p, v, team, tick) {
-  const { suit: SUIT, dark: SUIT_DARK } = palette();
+function player(c, p, v, team, tick, foe) {
+  const pal = palette(), fl = foeLook();
+  const suit = foe ? fl.suit : pal.suit[p.id], dark = foe ? fl.dark : pal.dark[p.id];
   const step = p.walk % 14 < 7 ? 1 : -1;
   const moving = p.walk !== p.lastWalk;
   p.lastWalk = p.walk;
   const x = Math.round(v.x), y = Math.round(v.y) + TOP;
   const bob = moving && step > 0 ? 1 : 0;
   c.fillStyle = "#0005"; c.fillRect(x - 6, y + 5, 12, 3);
-  if (team !== undefined) {
+  if (foe) {
+    c.lineWidth = 3; c.strokeStyle = "#000a";
+    c.beginPath(); c.ellipse(x, y + 6, 9, 3.5, 0, 0, 7); c.stroke();
+    c.lineWidth = 1.5; c.strokeStyle = fl.ring;
+    c.stroke();
+  } else if (team !== undefined) {
     c.lineWidth = 3; c.strokeStyle = "#000a";
     c.beginPath(); c.ellipse(x, y + 6, 9, 3.5, 0, 0, 7); c.stroke();
     c.lineWidth = 1.5; c.strokeStyle = teamInfo(team).col;
@@ -179,29 +252,124 @@ function player(c, p, v, team, tick) {
   if (p.curse) disc(c, x, y - 3, 11, `rgba(190,60,255,${0.22 + 0.12 * Math.sin(tick / 3)})`);
   const lf = moving ? step : 0;
   c.fillStyle = "#222"; c.fillRect(x - 5, y + 4 + (lf > 0 ? 0 : 1), 4, 3); c.fillRect(x + 1, y + 4 + (lf > 0 ? 1 : 0), 4, 3);
-  c.fillStyle = SUIT[p.id]; c.fillRect(x - 5, y - 1 - bob, 10, 6);
-  c.fillStyle = SUIT_DARK[p.id]; c.fillRect(x - 5, y + 3 - bob, 10, 2);
+  c.fillStyle = suit; c.fillRect(x - 5, y - 1 - bob, 10, 6);
+  c.fillStyle = dark; c.fillRect(x - 5, y + 3 - bob, 10, 2);
   c.fillStyle = "#ffd9b0"; c.fillRect(x - 6, y + (moving ? step : 0) - bob, 2, 3); c.fillRect(x + 4, y + (moving ? -step : 0) - bob, 2, 3);
-  disc(c, x, y - 5 - bob, 6.5, SUIT[p.id]);
-  c.fillStyle = SUIT_DARK[p.id]; c.fillRect(x - 6, y - 4 - bob, 12, 1);
+  disc(c, x, y - 5 - bob, 6.5, suit);
+  c.fillStyle = dark; c.fillRect(x - 6, y - 4 - bob, 12, 1);
   if (p.face !== 0) {
     c.fillStyle = "#ffd9b0"; c.fillRect(x - 4 + (p.face === 3 ? -1 : p.face === 1 ? 1 : 0), y - 8 - bob, 8, 6);
     c.fillStyle = "#111";
     const ex = p.face === 3 ? -2 : p.face === 1 ? 2 : 0;
     c.fillRect(x - 3 + ex, y - 6 - bob, 2, 3); c.fillRect(x + 1 + ex, y - 6 - bob, 2, 3);
   } else {
-    c.fillStyle = SUIT_DARK[p.id]; c.fillRect(x - 4, y - 8 - bob, 8, 5);
+    c.fillStyle = dark; c.fillRect(x - 4, y - 8 - bob, 8, 5);
   }
+  if (foe) { c.fillStyle = "#efe6d0"; c.fillRect(x - 6, y - 14 - bob, 2, 4); c.fillRect(x + 4, y - 14 - bob, 2, 4); }
   c.fillStyle = "#e8453c"; c.fillRect(x - 1, y - 13 - bob, 3, 3);
   c.fillStyle = "#fff"; c.fillRect(x, y - 12 - bob, 1, 1);
   if (p.curse) c.drawImage(ICONS[7], x - 4.5, y - 27 + Math.round(Math.sin(tick / 5)), 9, 9);
-  if (view.cb) tag(c, p.id + 1, x, y - 16 - bob);
+  if (view.cb && !foe) tag(c, p.id + 1, x, y - 16 - bob);
   if (p.shield > 0) {
     c.beginPath(); c.ellipse(x, y - 3, 11, 13, 0, 0, 7);
     c.fillStyle = p.shield < 60 && p.shield % 10 < 5 ? "rgba(90,220,255,.1)" : "rgba(90,220,255,.28)";
     c.fill();
     c.lineWidth = 1; c.strokeStyle = "rgba(200,248,255,.85)"; c.stroke();
   }
+}
+
+const DASH = [3, 3], SOLID = [];
+
+function zone(c, cx, cy, grid, fill, edge, dash) {
+  c.fillStyle = fill;
+  for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 1; x <= cx + 1; x++) if (x >= 0 && y >= 0 && x < W && y < H && grid[y * W + x] !== 1) c.fillRect(x * T, y * T + TOP, T, T);
+  c.strokeStyle = edge; c.lineWidth = 2; c.setLineDash(dash);
+  c.strokeRect((cx - 1) * T + 1, (cy - 1) * T + TOP + 1, 3 * T - 2, 3 * T - 2);
+  c.setLineDash(SOLID);
+}
+
+function hillZone(c, s) {
+  const h = s.hill;
+  if (!h) return;
+  let who = -1, n = 0;
+  for (const p of s.players) if (p.alive && Math.abs(Math.floor(p.x / T) - h.x) <= 1 && Math.abs(Math.floor(p.y / T) - h.y) <= 1) { who = p.id; n++; }
+  const foe = who >= humansOf(s);
+  zone(c, h.x, h.y, s.grid, n > 1 ? "rgba(232,69,60,.28)" : n ? "rgba(255,210,60,.34)" : "rgba(255,210,60,.22)", n > 1 ? "#e8453c" : FLOORC.hill, SOLID);
+  if (n === 1) { c.fillStyle = foe ? foeLook().suit : palette().suit[who]; c.fillRect(h.x * T + 4, (h.y - 1) * T + TOP - 3, T - 8, 3); }
+  if (Array.isArray(h.next) && (view.still || s.tick % 20 < 14)) zone(c, h.next[0], h.next[1], s.grid, "rgba(255,255,255,.1)", FLOORC.next, DASH);
+}
+
+function brackets(c, x, y, col) {
+  c.fillStyle = col;
+  for (const sx of [0, T - 4]) for (const sy of [0, T - 1]) c.fillRect(x + sx, y + sy, 4, 1);
+  for (const sx of [0, T - 1]) for (const sy of [0, T - 4]) c.fillRect(x + sx, y + sy, 1, 4);
+}
+
+// Telegraph markers under items and players: bomb rain, item rain, quake.
+function eventTiles(c, s) {
+  const e = s.event, info = e && EVENT_INFO[e.type];
+  if (!info || !Array.isArray(e.tiles)) return;
+  const hot = e.t < 30, lit = view.still || e.t % (hot ? 6 : 16) < (hot ? 3 : 11);
+  for (const t of e.tiles) {
+    if (!Array.isArray(t)) continue;
+    const x = t[0] * T, y = t[1] * T + TOP;
+    if (e.type === "quake") {
+      c.fillStyle = "#1c120a";
+      for (const [dx, dy, w, h] of [[3, 1, 2, 3], [5, 4, 2, 3], [3, 7, 2, 3], [5, 10, 2, 3], [7, 12, 2, 3], [9, 3, 2, 2], [11, 6, 2, 3]]) c.fillRect(x + dx, y + dy, w, h);
+    } else if (e.type === "bombrain") {
+      disc(c, x + 8, y + 9, 3.5, "#14141c");
+      c.fillStyle = "#ffd23c"; c.fillRect(x + 9, y + 4, 2, 2);
+    } else {
+      c.fillStyle = "#ffe14a";
+      c.fillRect(x + 7, y + 4, 2, 8); c.fillRect(x + 4, y + 7, 8, 2);
+    }
+    if (lit) brackets(c, x, y, info.col);
+  }
+}
+
+// Swap links and the frenzy tint, drawn over the players.
+function eventOver(c, s) {
+  const e = s.event, info = e && EVENT_INFO[e.type];
+  if (!info) return;
+  const lit = view.still || e.t % 16 < 11;
+  if (e.type === "swap") {
+    const a = s.players[e.a], b = s.players[e.b];
+    if (!a?.alive || !b?.alive) return;
+    c.strokeStyle = info.col; c.lineWidth = 1;
+    c.globalAlpha = 0.5;
+    c.setLineDash(DASH);
+    c.beginPath(); c.moveTo(a.x, a.y + TOP - 3); c.lineTo(b.x, b.y + TOP - 3); c.stroke();
+    c.setLineDash(SOLID);
+    c.globalAlpha = 1;
+    if (lit) for (const p of [a, b]) { c.lineWidth = 2; c.beginPath(); c.ellipse(Math.round(p.x), Math.round(p.y) + TOP - 3, 11, 13, 0, 0, 7); c.stroke(); }
+  } else if (e.type === "frenzy") {
+    if (e.on > 0) { c.fillStyle = "rgba(255,61,138,.1)"; c.fillRect(0, TOP, CW, CH - TOP); }
+    else if (lit) { c.strokeStyle = info.col; c.lineWidth = 2; c.strokeRect(1, TOP + 1, CW - 2, CH - TOP - 2); }
+  }
+}
+
+function potatoMark(c, s) {
+  const po = s.potato, h = po && s.players[po.holder];
+  if (!h?.alive) return;
+  const x = Math.round(h.x), y = Math.round(h.y) + TOP, f = Math.max(0, Math.min(1, po.t / POTATO_TICKS));
+  const flash = !view.still && f < 0.25 && s.tick % 8 < 4;
+  disc(c, x, y - 3, 12, flash ? "rgba(255,60,40,.5)" : "rgba(255,138,42,.4)");
+  const py = Math.max(y - 24, TOP + 9);
+  c.fillStyle = "#000"; c.beginPath(); c.ellipse(x, py, 6.5, 5.5, -0.3, 0, 7); c.fill();
+  c.fillStyle = "#d9a24e"; c.beginPath(); c.ellipse(x, py, 5, 4, -0.3, 0, 7); c.fill();
+  c.fillStyle = "#7a4e22"; c.fillRect(x - 2, py - 1, 1, 1); c.fillRect(x + 1, py + 1, 1, 1); c.fillRect(x - 1, py + 2, 1, 1);
+  c.fillStyle = "#4a3018"; c.fillRect(x + 2, py - 7, 1, 4);
+  c.fillStyle = s.tick % 6 < 3 ? "#ffd23c" : "#ff7a2a"; c.fillRect(x + 1, py - 9 + Math.round(f * 2), 3, 3);
+  if (!view.still) {
+    const sp = 0.25 + (1 - f) * 0.7;
+    for (let k = 0; k < 2; k++) {
+      const a = s.tick * sp + k * 3.1;
+      c.fillRect(x + 2 + Math.round(Math.cos(a) * (3 + (1 - f) * 5)), py - 8 + Math.round(Math.sin(a) * (3 + (1 - f) * 5)), 1, 1);
+    }
+  }
+  c.fillStyle = "#000"; c.fillRect(x - 9, y + 9, 18, 4);
+  c.fillStyle = f > 0.5 ? "#7bd34a" : f > 0.25 ? "#ffb02a" : flash ? "#fff" : "#ff3b30";
+  c.fillRect(x - 8, y + 10, Math.round(16 * f), 2);
 }
 
 function isBlock(g, x, y) { return x >= 0 && y >= 0 && x < W && y < H && g[y * W + x] !== 0; }
@@ -222,7 +390,8 @@ function hud(c, g) {
       const x = 6 + k * (wide ? 118 : 58);
       mark(e, x);
       c.fillStyle = e.i === g.me ? "#ffd23c" : "#fff";
-      c.fillText(`${e.name ? e.name.slice(0, wide ? 10 : 6) + " " : ""}${e.score}`, x + 11, 11);
+      const sc = e.score < 0 ? "" : e.pts >= 0 ? `${e.score}·${e.pts}` : e.score;
+      c.fillText(`${e.name ? e.name.slice(0, wide ? 10 : e.pts >= 0 ? 3 : 6) + " " : ""}${sc}`, x + 11, 11);
     });
   } else {
     [...new Set(rows.map((e) => e.team))].forEach((t, k) => {
@@ -235,7 +404,7 @@ function hud(c, g) {
   }
 
   c.textAlign = "center";
-  const pill = (x, w) => { c.fillStyle = "#000b"; c.fillRect(x - w / 2, TOP + 3, w, 11); };
+  const pill = (x, w, y = TOP + 3) => { c.fillStyle = "#000b"; c.fillRect(x - w / 2, y, w, 11); };
   if (g.me >= 0 && !s.done && s.players[g.me]?.alive === false && !g.banner) {
     pill(CW / 2, 132);
     c.fillStyle = "#fff"; c.fillText("You're out – spectating", CW / 2, TOP + 12);
@@ -245,12 +414,22 @@ function hud(c, g) {
     pill(40, 76);
     c.fillStyle = "#d58cff"; c.fillText(cur, 40, TOP + 12);
   }
+  c.textAlign = "left";
+  const mt = modeText(s), et = eventText(s);
+  if (mt) {
+    pill(5 + mt.length * 2.5 + 3, mt.length * 5 + 6, CH - 14);
+    c.fillStyle = s.hill ? FLOORC.hill : s.potato ? FLOORC.potato : "#ff6a5c"; c.fillText(mt, 8, CH - 5);
+  }
   c.textAlign = "right";
+  if (et) {
+    pill(CW - 5 - et.length * 2.5 - 3, et.length * 5 + 6, CH - 14);
+    c.fillStyle = EVENT_INFO[s.event.type].col; c.fillText(et, CW - 8, CH - 5);
+  }
   if (s.tick >= SUDDEN - 300 && s.cfg?.suddenDeath !== false) {
     pill(CW - 50, 92);
     c.fillStyle = s.tick % 40 < 20 ? "#e8453c" : "#ffd23c";
     c.fillText(s.tick >= SUDDEN ? "SUDDEN DEATH" : "SUDDEN DEATH SOON", CW - 6, TOP + 12);
-  } else if (g.win) {
+  } else if (g.win && !s.survival) {
     c.fillStyle = "#fff8";
     c.fillText(`FIRST TO ${g.win}`, CW - 6, TOP + 12);
   }
@@ -290,7 +469,7 @@ function bubbles(c, g) {
 }
 
 export function draw(c, g) {
-  const s = g.s, th = themeOf(s.cfg), sp = sprites(th), tm = teamsOf(s);
+  const s = g.s, th = themeOf(s.cfg), sp = sprites(th), tm = teamsOf(s), fl = s.floor, nh = humansOf(s);
   c.fillStyle = "#17171f";
   c.fillRect(0, 0, CW, CH);
 
@@ -301,10 +480,14 @@ export function draw(c, g) {
       else if (t === 2) c.drawImage(sp.soft, px, py);
       else {
         c.drawImage(sp.ground[(x + y) & 1], px, py);
+        if (fl && fl[y * W + x]) floorTile(c, fl[y * W + x], px, py, y * W + x, s);
         if (isBlock(s.grid, x, y - 1)) c.drawImage(shadow, px, py);
       }
     }
   }
+
+  if (s.hill) hillZone(c, s);
+  if (s.event) eventTiles(c, s);
 
   for (const it of s.items) {
     const icon = ICONS[it.type];
@@ -319,8 +502,10 @@ export function draw(c, g) {
   flames(c, s.flames);
 
   for (const p of [...s.players].filter((q) => q.alive).sort((a, b) => a.y - b.y)) {
-    player(c, p, p, tm ? tm[p.id] : undefined, s.tick);
+    player(c, p, p, tm ? tm[p.id] : undefined, s.tick, p.id >= nh);
   }
+  if (s.potato) potatoMark(c, s);
+  if (s.event) eventOver(c, s);
 
   c.fillStyle = "#0e0e16"; c.fillRect(0, 0, CW, TOP);
   c.fillStyle = "#2a2a3a"; c.fillRect(0, TOP - 1, CW, 1);
