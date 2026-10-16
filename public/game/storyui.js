@@ -9,8 +9,8 @@ const img = (id) => `<img src="/portraits/${id}.webp" width="256" height="256" a
 const cap = (id) => `${esc(BY_ID[id].name)}<small>${esc(TEXT[id].epithet)}</small>`;
 
 // Static screens: timers only run while text is typing and during the 9..1 continue countdown.
-export function createStoryUI({ root, show, fight, home, reduced }) {
-  let st = load(store), sel = ROSTER[0].id, view = "", tid = 0, cd = 0, typing = null, texts = [], after = null;
+export function createStoryUI({ root, show, fight, home, reduced, blip = () => {} }) {
+  let st = load(store), sel = ROSTER[0].id, view = "", tid = 0, cd = 0, typing = null, texts = [], who = [], after = null;
   const endType = () => { clearInterval(tid); typing = null; };
   const stop = () => { endType(); clearTimeout(cd); };
   const on = () => root.classList.contains("on");
@@ -30,6 +30,7 @@ export function createStoryUI({ root, show, fight, home, reduced }) {
 
   const box = (rows) => {
     texts = rows.map((r) => r.text);
+    who = rows.map((r) => r.id);
     return `<div class="dlg px">${rows.map((r) => `<p>${r.id ? `<b class="who" style="--c:${BY_ID[r.id].color}">${esc(BY_ID[r.id].name)}</b>` : ""}<span class="t"></span><span class="t h"></span></p>`).join("")}</div>`;
   };
 
@@ -50,7 +51,12 @@ export function createStoryUI({ root, show, fight, home, reduced }) {
     let n = 0;
     paint(0);
     typing = () => { paint(total); follow(); endType(); };
-    tid = setInterval(() => { paint(++n); follow(); if (n >= total) endType(); }, 28);
+    tid = setInterval(() => {
+      paint(++n);
+      follow();
+      if (n % 2 === 0) { let k = 0, m = n; while (k < ts.length - 1 && m > ts[k].length) m -= ts[k++].length; if (ts[k][m - 1] > " ") blip(who[k] ?? "narrator"); }
+      if (n >= total) endType();
+    }, 28);
   }
 
   const btn = (act, label, o = "") => `<button class="arc ${o.includes("alt") ? "alt" : ""}" data-act="${act}" ${o.includes("pri") ? "data-pri" : ""} ${o.includes("adv") ? "data-adv" : ""}>${label}</button>`;

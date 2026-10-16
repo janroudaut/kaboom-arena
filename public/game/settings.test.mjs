@@ -65,3 +65,10 @@ test("extras settings: mode, tiles and chaos are validated and reach newGame", (
   const surv = newGame(2, 3, roundOpts({ ...DEFAULTS, mode: "survival", ff: true }, 2).opts);
   assert.deepEqual([surv.cfg.friendlyFire, surv.players.length], [false, 14]);
 });
+
+test("sound settings: defaults, validation, grouped in the Sound section", () => {
+  assert.deepEqual([DEFAULTS.sfx, DEFAULTS.music, DEFAULTS.volume, DEFAULTS.voice], [true, "auto", "normal", false]);
+  assert.deepEqual(sanitize({ sfx: false, music: "synth", volume: "high", voice: true }), { ...DEFAULTS, sfx: false, music: "synth", volume: "high", voice: true });
+  assert.deepEqual(sanitize({ sfx: "no", music: "polka", volume: 11, voice: 1 }), DEFAULTS);
+  assert.deepEqual(FIELDS.filter((f) => f.sound).map((f) => f.key), ["sfx", "music", "volume", "voice"]);
+});

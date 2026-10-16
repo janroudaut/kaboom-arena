@@ -16,6 +16,8 @@ import { BY_ID } from "./campaign.js";
 import { fightLine } from "./story.js";
 import { createDirector, timeScale, recapView } from "./director.js";
 import { fps } from "./fpsinput.js";
+import { createSound, browserSpeech } from "./sound.js";
+import { browserEngine } from "./audio.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c"), ctx = canvas.getContext("2d");
@@ -32,6 +34,9 @@ let settings = loadSettings();
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 let vibSent = null;
 const haptics = createHaptics({ vibrate: (p) => (vibSent = browserVibrate(p)), rumble: browserRumble, settings: () => settings });
+const snd = createSound({ settings: () => settings, makeEngine: () => browserEngine({ mobile: matchMedia("(pointer: coarse)").matches }), speech: browserSpeech() });
+let sndGame = false;
+try { snd.setMuted(localStorage.getItem("mute") === "1"); } catch {}
 let feel = {};
 const fd = createDirector();
 let clock = 0, ts = 1, still = false, recapOn = false, recapOff = false;
@@ -52,6 +57,7 @@ function applyLook() {
   const m = settings.mode;
   $("soloLabel").textContent = m === "classic" ? "Solo vs bots" : m === "survival" ? "Solo · Survival vs waves" : `Solo · ${MODE_INFO[m].name}`;
   dirty = true;
+  snd.sync();
 }
 motion.addEventListener?.("change", applyLook);
 let gnet = null, lastGrid = null, lastCfg = null, lastFloor, hostRules = DEFAULTS, sentGrid = "", snapCount = 0, rtt = 0, pingTimer = 0;
@@ -153,6 +159,9 @@ function toMenu(msg = "") {
   feel = {};
   resetFeel();
   setSuits(null);
+  sndGame = false;
+  snd.setScene({ kind: "menu" });
+  snd.cancelSpeech();
   gnet = lastGrid = lastCfg = lastFloor = null;
   hostRules = DEFAULTS;
   names = pnames = [];
@@ -167,7 +176,7 @@ function toMenu(msg = "") {
   show("menu");
 }
 
-const storyUi = createStoryUI({ root: $("story"), show: () => show("story"), fight: startStory, home: () => toMenu(), reduced: () => reduced(settings, motion.matches) });
+const storyUi = createStoryUI({ root: $("story"), show: () => show("story"), fight: startStory, home: () => toMenu(), reduced: () => reduced(settings, motion.matches), blip: (id) => snd.blip(id) });
 $("storyBtn").onclick = () => storyUi.open();
 const faceIn = (inp, id) => fps.map(inp, game.s.tick, (game.s.players[id]?.x ?? 0) < (W * T) / 2 ? 1 : 3);
 const allInputs = () => (fpsOn() && game ? faceIn(merge(Object.keys(sources)), Math.max(game.me, 0)) : merge(Object.keys(sources)));
@@ -187,13 +196,17 @@ let paused = false, dirty = true;
 function setPause(on) {
   if (on && mode !== "solo" && mode !== "local" && mode !== "story") return;
   paused = on;
+  snd.setPaused(on);
   $("pause").classList.toggle("on", on);
 }
 
 addEventListener("keydown", (e) => {
   if ((e.code === "KeyP" || e.code === "Escape") && !e.repeat && $("game").classList.contains("on")) setPause(!paused);
 });
-document.addEventListener("visibilitychange", () => document.hidden && setPause(true));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) setPause(true);
+  snd.setHidden(document.hidden);
+});
 addEventListener("resize", () => (dirty = true));
 $("pauseBtn").onclick = () => setPause(true);
 $("resume").onclick = () => setPause(false);
@@ -256,7 +269,14 @@ function startMatch(n, story, storyNames) {
   fps.reset();
   sentGrid = "";
   $("pauseBtn").hidden = mode !== "solo" && mode !== "local" && mode !== "story";
+  enterGame(game);
   show("game");
+}
+
+function enterGame(g) {
+  const c = g.s.cfg;
+  sndGame = true;
+  snd.setScene({ kind: "game", theme: c?.theme, mode: c?.mode, boss: !!g.story?.boss, who: g.story?.foe });
 }
 
 function isBot(id) {
@@ -678,6 +698,12 @@ function loop(now) {
   if (game && !paused) feelStep(game);
   syncRematch();
   if (game && !paused) rumble(game);
+  if (game && !paused) {
+    if (!sndGame) enterGame(game);
+    snd.ctx.me = mode === "local" ? -1 : game.me;
+    snd.ctx.human = fx.human;
+    snd.feed(game);
+  }
   if (game && (!paused || dirty)) {
     dirty = false;
     try {
@@ -703,7 +729,34 @@ addEventListener("keydown", (e) => e.code !== "Escape" && e.code !== "KeyP" && !
 document.addEventListener("click", (e) => {
   const b = e.target.closest?.("button");
   if (b && !b.closest("#settings, #story")) b.blur();
+  if (b && b.id !== "bombBtn" && b.id !== "muteBtn") snd.ui("click");
 });
+let kbdAt = 0;
+addEventListener("keydown", () => (kbdAt = performance.now()), true);
+document.addEventListener("focusin", (e) => e.target.tagName === "BUTTON" && performance.now() - kbdAt < 150 && snd.ui("nav"));
+for (const ev of ["pointerdown", "keydown", "touchend"]) addEventListener(ev, snd.gesture, true);
+
+function markMute() {
+  const m = snd.muted;
+  $("muteBtn").textContent = m ? "🔇" : "🔊";
+  $("muteBtn").setAttribute("aria-pressed", m);
+  $("muteBtn").setAttribute("aria-label", m ? "Unmute sound" : "Mute sound");
+  $("sndMute").textContent = m ? "Unmute (N)" : "Mute (N)";
+}
+function toggleMute() {
+  snd.setMuted(!snd.muted);
+  try { localStorage.setItem("mute", snd.muted ? "1" : "0"); } catch {}
+  markMute();
+}
+$("muteBtn").onclick = $("sndMute").onclick = toggleMute;
+addEventListener("keydown", (e) => e.code === "KeyN" && !e.repeat && e.target.tagName !== "INPUT" && !e.metaKey && !e.ctrlKey && !e.altKey && toggleMute());
+markMute();
+snd.setScene({ kind: "menu" });
+$("sndTest").onclick = () => {
+  snd.gesture();
+  const ok = snd.ui("test", 1, true);
+  $("sndStatus").textContent = snd.muted ? "Sound is muted: press N or the speaker button." : ok ? "Played. If you hear nothing, check the volume and the silent switch of your phone." : "This browser has no Web Audio.";
+};
 
 function markSettings() {
   for (const seg of document.querySelectorAll("#settings .seg")) {
@@ -725,7 +778,7 @@ for (const f of FIELDS) {
     b.onclick = () => { settings[f.key] = v; saveSettings(settings); if (f.key === "offline") { $("offStatus").textContent = v ? "Saving files..." : ""; if (v) sw.ask(); } markSettings(); applyLook(); };
     seg.append(b);
   }
-  $(f.a11y ? "a11yList" : f.feel ? "feelList" : f.store ? "offList" : "setList").append(label, seg);
+  $(f.sound ? "soundList" : f.a11y ? "a11yList" : f.feel ? "feelList" : f.store ? "offList" : "setList").append(label, seg);
 }
 $("settingsBtn").onclick = () => { markSettings(); show("settings"); $("setBack").focus(); };
 $("setBack").onclick = () => show("menu");

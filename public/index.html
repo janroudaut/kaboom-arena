@@ -87,8 +87,11 @@
   .h3-banner { position: absolute; left: 0; right: 0; top: 42%; text-align: center; font-size: 28px; padding: 14px; background: #000b; border-block: 2px solid #ffd23c; }
   #touch { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 3; }
   #touch > * { pointer-events: auto; }
-  #quit, #pauseBtn { z-index: 4; }
+  #quit, #pauseBtn, #muteBtn { z-index: 4; }
   #pauseBtn { position: absolute; top: 6px; right: 52px; min-width: 0; padding: 6px 12px; background: #0008; }
+  #muteBtn { position: absolute; top: 6px; right: 98px; min-width: 0; padding: 6px 12px; background: #0008; }
+  #muteBtn[aria-pressed="true"] { background: #b3261eee; }
+  #pauseBtn[hidden] ~ #muteBtn { right: 52px; }
   #pause { position: absolute; inset: 0; z-index: 5; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0b0b12d9; }
   #pause.on { display: flex; }
   #pause h2 { margin: 0 0 6px; font-size: 2.2rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
@@ -151,7 +154,7 @@
   .chips .chip { flex: 1 1 0; justify-self: auto; }
   #installBtn[hidden], #iosHint[hidden], #help[hidden], #toast[hidden] { display: none; }
   #settings h3 { margin: 6px 0 -2px; text-align: center; font-size: .9rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
-  #a11yList .label, #feelList .label { text-transform: none; letter-spacing: .02em; font-size: .8rem; }
+  #a11yList .label, #feelList .label, #soundList .label { text-transform: none; letter-spacing: .02em; font-size: .8rem; }
   #help { position: fixed; inset: 0; z-index: 20; display: flex; justify-content: safe center; align-items: center; overflow-y: auto; padding: 8px; background: #0b0b12e6; }
   #help .menu-col { flex: none; width: min(94vw, 460px); gap: 8px; background: #14141f; }
   #help h2 { margin: 0; text-align: center; font-size: 1.4rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
@@ -334,6 +337,10 @@
     <h3>Game feel</h3>
     <div id="feelList" style="display:grid;gap:10px"></div>
     <div class="hint">Reduce motion turns off slow-mo, zoom, pop-in text and speech bubbles.</div>
+    <h3>Sound</h3>
+    <div id="soundList" style="display:grid;gap:10px"></div>
+    <div class="row chips"><button id="sndTest" class="chip">Test sound</button><button id="sndMute" class="chip">Mute (N)</button></div>
+    <div class="hint" id="sndStatus" role="status">Everything is synthesised, no audio files. Auto picks the music from the theme and mode. The voice reads the announcer banners, so keep Announcer on. Press N in game to mute.</div>
     <h3>Accessibility &amp; feedback</h3>
     <div id="a11yList" style="display:grid;gap:10px"></div>
     <h3>Offline</h3>
@@ -371,10 +378,11 @@
   <canvas id="cf" hidden></canvas>
   <div id="ping"></div>
   <button id="pauseBtn" hidden aria-label="Pause">⏸</button>
+  <button id="muteBtn" aria-label="Mute sound" aria-pressed="false">🔊</button>
   <button id="quit" aria-label="Quit">✕</button>
   <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><div id="rematchRecap" class="recap"></div><button id="again" class="btn-main">Play again</button><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
   <div id="recap" class="recap" role="status"></div>
-  <div id="pause"><h2>Paused</h2><button id="resume" class="btn-main">Resume</button><button id="pauseHelp" class="alt">How to play</button><button id="pauseQuit" class="alt">Quit to menu</button><small>P / Esc / gamepad Start</small></div>
+  <div id="pause"><h2>Paused</h2><button id="resume" class="btn-main">Resume</button><button id="pauseHelp" class="alt">How to play</button><button id="pauseQuit" class="alt">Quit to menu</button><small>P / Esc / gamepad Start · N mutes</small></div>
   <div id="touch"><div id="pad"><div id="knob"></div></div><button id="bombBtn">💣</button></div>
 </div>
 <div id="reconn" class="overlay">Reconnecting…</div>
@@ -411,6 +419,7 @@
       <li><b>Gamepad</b> D-pad or stick, any button drops a bomb, Start pauses</li>
       <li><b>Touch</b> left pad to move, 💣 to drop a bomb</li>
       <li><b>Pause</b> P or Esc</li>
+      <li><b>Sound</b> N mutes or unmutes (settings: effects, music style, voice)</li>
       <li><b>First person</b> Graphics: Bomber Shooter. ←/→ turn, ↑/↓ walk, , and . strafe, M minimap. In local games only the first player gets this view.</li>
       <li><b>Note</b> Bomber Shooter is a nod to the boomer shooter genre. Original art, not affiliated with id Software.</li>
     </ul>

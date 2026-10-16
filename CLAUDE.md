@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -58,6 +58,12 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - Integration: `floor` travels with the grid as `fl` (base-36 string, null without tiles); `unpackSnap(p, prevGrid, prevCfg, prevFloor)` keeps it on lean snapshots and `main.js` resets `lastFloor` in `toMenu`. The `lobby` message carries `rules: {mode, tiles, chaos}` (guest runs it through `sanitize`). Settings `mode`, `tiles`, `chaos` live in the Match panel.
 - Participants vs players: `humansOf(s)` / `g.n` is the number of humans; survival adds 12 enemy slots, so never use `players.length` for scores, names, recaps or rematch. `hudEntries` filters dormant slots, `teamsOf` is null in survival. `director` stat arrays are 16 long and ignore owner -1 bombs.
 - Non-classic modes show their banner through the `intro` freeze; survival ends the match after one round ("Survived N waves"). Bots think staggered by player id. `look.js` holds `FLOORC`, `EVENT_INFO`, `MODE_INFO`, `spikePhase`, `eventText`, `modeText`, `foeLook` and `view.still`. 3D extras are pooled/instanced and hidden unless the state has them. `renderfps.js` still ignores floor and mode visuals.
+
+## Sound (`music.js`, `sound.js`, `audio.js`)
+- All procedural WebAudio, no assets. `music.js` is pure (seeded plans and bars, 8-bar loops, styles Arcade/Epic/Chill/Synthwave + quiet menu variant), `sound.js` is the pure state-diff observer (reuses `fx.js` events, adds explosions, extras, stingers), voice limiter (16, priority + min gap per name) and `createSound` with injected `makeEngine`, settings, speech and clocks; `audio.js` is the engine (`createEngine(ctx)`, 47 recipes, also runs on an `OfflineAudioContext` for measurement; compressor then tanh soft clip).
+- Settings `sfx`, `music`, `volume`, `voice` (flag `sound: true`, `#soundList`); mute is localStorage `mute`, toggled by N or `#muteBtn` (always visible during play). Voice speaks `g.call` only when Announcer is on and is off by default. No gamepad mute (every pad button drops a bomb).
+- A new sound needs a `SFX_INFO` entry (priority, gap) and a `RECIPES` entry (a test enforces they match). `main.js` calls `snd.feed(game)` per frame, `setScene` in `startMatch`/`toMenu`, `setPaused`/`setHidden`.
+- Frugality: the context is created on the first gesture and only if something can sound; suspended when paused, muted, hidden or silent in the menu; music scheduler is one 400 ms timer while music plays; mobile drops delay line, detune and layers. Auto music: theme picks the style, survival/potato/hill/boss adjust tempo and minimum intensity, level 2 (sudden death) adds 12% tempo.
 
 ## Bomber Shooter (experiment, first-person mode)
 - A fourth graphics mode ("First-person" in the Graphics toggle): a software raycaster over the same game state, so it works in solo, local, story, host and guest. Files: `raycast.js` (pure DDA/projection math, tested against a brute-force marcher), `fpsinput.js` (facing + input transform), `fpstex.js` (procedural paletted textures and sprites), `renderfps.js` (renderer + status-bar HUD + minimap), tests `raycast.test.mjs`, `fpsinput.test.mjs`. To remove the experiment: delete these files and revert the small hunks in `main.js` (import, `GFX` allow-list, `is3()`/`fpsOn()`, input transform, `fps.reset()`, draw dispatch), `index.html` (4th `#gfx` button, `<canvas id="cf">`, help lines) and `sw.js` (FILES).
