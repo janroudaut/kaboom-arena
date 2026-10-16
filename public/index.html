@@ -288,6 +288,32 @@
   .logo .k { font-size: clamp(1.8rem, min(11vw, 9vh), 3.2rem); letter-spacing: 0; }
   .logo .a { font-size: clamp(.8rem, 3.6vw, 1.15rem); letter-spacing: .45em; margin-right: -.45em; margin-top: .5em; }
 
+  .dcard { display: grid; grid-template-columns: 96px 1fr; gap: 6px 12px; align-items: center; padding: 10px; border: 1px solid #fff3; border-radius: 12px; background: #1d1a38; font-size: .8rem; }
+  .dcard img { width: 96px; height: 96px; image-rendering: pixelated; box-shadow: 0 0 0 3px var(--c, #ffd23c); background: #000; }
+  .dcard h3 { margin: 0 0 4px; color: var(--yellow); }
+  .dcard p { margin: 0 0 4px; color: #fffc; font-size: .78rem; }
+  .dcard dl { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 4px 0 0; font-size: .7rem; font-family: var(--pixel); }
+  .dcard dt { color: #fff9; } .dcard dd { margin: 0; text-align: right; color: var(--yellow); }
+  #daily, #replays { overflow-y: auto; justify-content: safe center; }
+  #daily .menu-col, #replays .menu-col { flex: none; width: min(94vw, 460px); margin-block: 12px; }
+  #daily h2, #replays h2 { margin: 0; text-align: center; color: var(--yellow); text-transform: uppercase; letter-spacing: .15em; }
+  #repList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  #repList li { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid #fff3; border-radius: 12px; background: #1d1a38; }
+  #repList b { display: block; font-size: .72rem; line-height: 1.5; overflow-wrap: anywhere; }
+  #repList small { color: #fffa; font-size: .75rem; overflow-wrap: anywhere; }
+  #repList .row { gap: 6px; } #repList .chip { flex: 1 1 0; padding: 7px 4px; }
+  #rmShare { gap: 6px; flex-wrap: wrap; justify-content: center; } #rmShare button { flex: 1 1 auto; padding: 8px 10px; }
+  #rmShare[hidden], #rmDaily:empty, #rpKeep[hidden] { display: none; }
+  #rmDaily { white-space: pre-line; color: var(--yellow); font-size: .8rem; line-height: 1.8; }
+  #playbar { position: absolute; left: 50%; bottom: max(8px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 4; width: min(96vw, 560px); display: grid; gap: 6px; padding: 8px 10px; border-radius: 12px; background: #0b0b12d0; }
+  #playbar[hidden] { display: none; }
+  #playbar .row { align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; } #playbar button { flex: 0 0 auto; min-width: 44px; padding: 8px 10px; }
+  #rpTime { font: .6rem var(--pixel); color: #fffc; text-align: center; }
+  #rpSeek { width: 100%; min-width: 0; padding: 0; accent-color: var(--yellow); text-transform: none; letter-spacing: 0; height: 22px; background: none; }
+  body.replaying #touch, body.replaying #pauseBtn { display: none !important; }
+  #note { position: fixed; z-index: 40; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); max-width: 92vw; padding: 10px 16px; border-radius: 12px; background: #14141f; border: 1px solid var(--yellow); font: .6rem/1.7 var(--pixel); text-align: center; overflow-wrap: anywhere; }
+  #note[hidden] { display: none; }
+
   /* Dialogue screens never scroll as a page: the portrait shrinks, the dialogue box scrolls on its own, the buttons stay visible. */
   #story:not([data-v="sel"]) { overflow: hidden; justify-content: center; }
   #story:not([data-v="sel"]) > * { flex: 0 0 auto; }
@@ -323,6 +349,7 @@
         <button data-solo="3"><b>3</b><small>bots</small></button>
       </div>
       <button id="local" class="alt">Local · 2–4 players</button>
+      <div class="row chips"><button id="dailyBtn" class="chip">★ Daily</button><button id="replaysBtn" class="chip">▶ Replays</button></div>
       <div class="label">Online</div>
       <button id="create" class="alt">Create a room</button>
       <div class="row"><input id="joinCode" maxlength="4" placeholder="CODE" size="6" autocomplete="off" aria-label="Room code"><button id="join" class="alt">Join</button></div>
@@ -385,6 +412,26 @@
   <button id="localStart">Start</button>
   <button id="localBack" class="alt">Back</button>
 </div>
+<div id="daily" class="screen">
+  <div class="menu-col">
+    <h2>Daily challenge</h2>
+    <div id="dailyCard" class="dcard"></div>
+    <button id="dailyPlay" class="btn-main">Play</button>
+    <div class="row"><button id="dailyWatch" class="alt">Watch best run</button><button id="dailyLink" class="alt">Share replay</button></div>
+    <button id="dailyCardBtn" class="alt">Share score card</button>
+    <div class="hint">A new challenge every day at 00:00 UTC, the same for everybody. Tries are free: only your best score counts. A streak is consecutive days with a finished try.</div>
+    <button id="dailyBack" class="alt">Back</button>
+  </div>
+</div>
+<div id="replays" class="screen">
+  <div class="menu-col">
+    <h2>Replays</h2>
+    <ul id="repList"></ul>
+    <div class="hint" id="repHint">Your last 10 finished matches are kept on this device. A replay is just inputs, so a link or a .kaboom file replays the exact match anywhere.</div>
+    <div class="row"><button id="repOpen" class="alt">Open a file</button><button id="repBack">Back</button></div>
+    <input id="repFile" type="file" accept=".kaboom,.json,application/json" hidden>
+  </div>
+</div>
 <div id="game" class="screen">
   <canvas id="c"></canvas>
   <canvas id="c3" hidden></canvas>
@@ -392,8 +439,16 @@
   <div id="ping"></div>
   <button id="pauseBtn" hidden aria-label="Pause">⏸</button>
   <button id="quit" aria-label="Quit">✕</button>
-  <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><div id="rematchRecap" class="recap"></div><button id="again" class="btn-main">Play again</button><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
+  <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><div id="rematchRecap" class="recap"></div><div id="rmDaily" class="hint"></div><button id="again" class="btn-main">Play again</button><div class="row" id="rmShare"><button id="rmWatch" class="alt">Watch replay</button><button id="rmLink" class="alt">Share replay</button><button id="rmCard" class="alt">Share card</button></div><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
   <div id="recap" class="recap" role="status"></div>
+  <div id="playbar" hidden>
+    <div id="rpTime"></div>
+    <input id="rpSeek" type="range" min="0" max="1" value="0" aria-label="Position">
+    <div class="row">
+      <button id="rpPlay">Pause</button><button id="rpSpeed" aria-label="Speed">1x</button><button id="rpRestart">Restart</button><button id="rpNext">Next round</button>
+    </div>
+  </div>
+  <div id="rpEnd" class="overlay"><h2>Replay finished</h2><div id="rpNote" class="hint"></div><button id="rpAgain" class="btn-main">Watch again</button><button id="rpKeep" class="alt">Keep in my replays</button><button id="rpLink" class="alt">Share link</button><button id="rpBack" class="alt">Back</button></div>
   <div id="pause"><h2>Paused</h2><button id="resume" class="btn-main">Resume</button><button id="pauseHelp" class="alt">How to play</button><button id="pauseQuit" class="alt">Quit to menu</button><small>P / Esc / gamepad Start · N mutes</small></div>
   <div id="touch"><div id="pad"><div id="knob"></div></div><button id="bombBtn">💣</button><button id="actBtn" hidden aria-label="Ability">⚡</button></div>
 </div>
@@ -434,6 +489,11 @@
       <li><b>Potato</b> the holder explodes when the fuse ends: touch someone to pass it</li>
       <li><b>Survival</b> enemy waves with red rings: last as long as you can</li>
     </ul>
+    <div class="label">Replays and daily challenge</div>
+    <ul class="keys">
+      <li><b>Replays</b> every finished match is saved on this device (last 10). Watch it again in any graphics mode, pause, seek, speed up. Share a link or a .kaboom file</li>
+      <li><b>Daily</b> one challenge a day at 00:00 UTC, same seed for everyone. Tries are free, your best score and streak are kept here, and you can share a score card</li>
+    </ul>
     <div class="label">Controls</div>
     <ul class="keys">
       <li><b>P1</b> WASD / ZQSD + Space</li>
@@ -450,6 +510,7 @@
     <button id="helpDone">Got it</button>
   </div>
 </div>
+<div id="note" role="status" hidden></div>
 <div id="toast" role="status" hidden>New version available <button id="toastReload">Reload</button><button id="toastClose" class="alt" aria-label="Dismiss">✕</button></div>
 <script type="module" src="/game/main.js"></script>
 <noscript><p style="position:fixed;inset:0;display:grid;place-items:center;color:#fff;background:#14141f;padding:24px;text-align:center">Kaboom Arena is a free browser game and needs JavaScript. Drop bombs, blast walls and outlast your rivals, solo, local or online.</p></noscript>

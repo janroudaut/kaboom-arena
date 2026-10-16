@@ -5,7 +5,7 @@ import { createInput, merge, sources, clearBombs, labelOf, pads } from "./input.
 import { joinRoom, newCode, cid } from "./net.js";
 import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
-import { teamInfo, view, setSuits, palette, humansOf, MODE_INFO, EVENT_INFO } from "./look.js";
+import { view, setSuits, palette, humansOf, MODE_INFO, EVENT_INFO } from "./look.js";
 import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, sanitize, roundOpts, reduced } from "./settings.js";
 import { createHaptics, browserVibrate, browserRumble, observe, vibrationReport } from "./haptics.js";
 import { setStill } from "./home.js";
@@ -13,6 +13,11 @@ import { initHelp, initInstall, watchUpdates } from "./ux.js";
 import { createNav } from "./nav.js";
 import { createStoryUI } from "./storyui.js";
 import { BY_ID } from "./campaign.js";
+import { createRecorder, createPlayback, settle, fragmentOf, unpack, rulesOf, titleOf } from "./replay.js";
+import { createReplayList, createPlaybar, shareReplay, notify, readFile, ERR } from "./replayui.js";
+import { createDailyUi } from "./dailyui.js";
+import { shareCard } from "./sharecard.js";
+import { FACES } from "./raycast.js";
 import { fightLine } from "./story.js";
 import { createDirector, timeScale, recapView } from "./director.js";
 import { fps } from "./fpsinput.js";
@@ -41,7 +46,7 @@ let feel = {};
 const fd = createDirector();
 let clock = 0, ts = 1, still = false, recapOn = false, recapOff = false;
 const fx = {
-  human: (i) => (mode === "local" ? i < humans.length : i === (game?.me ?? 0)),
+  human: (i) => (mode === "local" || (mode === "replay" && game?.me < 0) ? i < humans.length : i === (game?.me ?? 0)),
   announce: true, timeFx: false, punch: false, chat: false, still: false, rand: Math.random,
   line: (i, ev) => fightLine(game?.story?.[i ? "foe" : "id"], ev),
 };
@@ -151,12 +156,13 @@ addEventListener("popstate", () => nav.pop());
 function goBack(kind) {
   if (kind === "help") return help?.close();
   if (kind === "dlss") return ui6?.close();
+  if (mode === "replay") return exitReplay();
   const offline = mode === "solo" || mode === "local" || mode === "story";
   if (cur === "game" && !game?.rematch) {
     if (!offline) return nav.open("screen");
     if (!paused) { setPause(true); return nav.open("screen"); }
   }
-  if (cur === "settings") return show("menu");
+  if (cur === "settings" || cur === "daily" || cur === "replays") return show("menu");
   if (mode === "story" || cur === "story") return leave();
   if (mode === "host") return endMatch();
   toMenu();
@@ -173,7 +179,11 @@ function toMenu(msg = "") {
   setPause(false);
   clearTimeout(joinTimer);
   room?.leave();
-  room = mode = game = null;
+  room = mode = game = rec = rp = rpKeep = null;
+  rpSpeed = 1;
+  document.body.classList.remove("replaying");
+  playbar.show(false);
+  $("rpEnd").classList.remove("on");
   slots = [];
   inboxes = {};
   botMem = {};
@@ -215,12 +225,14 @@ const input = createInput(
 );
 
 let paused = false, dirty = true;
+let rec = null, rp = null, rpSpeed = 1, rpBack = "menu", rpKeep = null;
 
 function setPause(on) {
-  if (on && mode !== "solo" && mode !== "local" && mode !== "story") return;
+  if (on && mode !== "solo" && mode !== "local" && mode !== "story" && mode !== "replay") return;
   paused = on;
   snd.setPaused(on);
-  $("pause").classList.toggle("on", on);
+  $("pause").classList.toggle("on", on && mode !== "replay");
+  if (mode === "replay") dirty = true;
 }
 
 addEventListener("keydown", (e) => {
@@ -248,11 +260,14 @@ function renderLocalLobby() {
 
 const FAST = new URLSearchParams(location.search).get("story");
 
-function makeGame(n, story) {
-  const { opts, theme } = story ?? roundOpts(settings, n);
-  const s = newGame(n, Date.now(), opts);
+function makeGame(n, spec, round = 1) {
+  const { opts, theme } = spec ?? roundOpts(settings, n);
+  const seed = spec?.seed ? spec.seed(round - 1) : Date.now();
+  const s = newGame(n, seed, opts);
   s.cfg.theme = theme;
-  if (story && FAST) s.players[FAST === "lose" ? 0 : 1].alive = false;
+  const kill = spec?.fighter || !spec || !FAST ? [] : [FAST === "lose" ? 0 : 1];
+  for (const id of kill) s.players[id].alive = false;
+  rec?.begin(s, seed, opts, theme, kill);
   return s;
 }
 
@@ -279,13 +294,17 @@ function startStory(spec) {
   startMatch(2, Object.keys(extra).length ? { ...spec, opts: { ...spec.opts, ...extra } } : spec, [me.name, foe.name]);
 }
 
-function startMatch(n, story, storyNames) {
+function startMatch(n, story, storyNames, daily) {
   const labels = mode === "local" || settings.cb ? PNUM : undefined;
   const who = mode === "local" ? humans.map(() => true) : mode === "host" ? slots.map(Boolean) : [true];
+  const spec = daily ?? story;
+  const kind = story ? "story" : daily ? "daily" : mode === "local" ? "local" : mode === "host" ? "host" : "solo";
+  const hm = who.reduce((m, h, i) => (h ? m | (1 << i) : m), 0) & 0xffff;
+  rec = createRecorder({ k: kind, n, hm, w: spec ? spec.win : settings.rounds, lv: spec?.level ?? settings.bot, st: story ? { id: story.id, i: story.i } : null, dl: daily?.key ?? null, fg: daily?.fighter.id ?? null, ts: Date.now() });
   game = {
-    s: makeGame(n, story), n, scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: story ? story.win : settings.rounds,
+    s: makeGame(n, spec), n, scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: spec ? spec.win : settings.rounds,
     names: storyNames ?? displayNames(n, who, mode === "host" ? names : [myName()], labels),
-    story, retro: !!story, round: 1, intro: story ? INTRO : 0,
+    story, spec, daily, nr: 1, retro: !!story, round: 1, intro: story ? INTRO : 0,
   };
   if (story) game.banner = roundBanner(game);
   else modeIntro(game);
@@ -311,13 +330,15 @@ function isBot(id) {
 }
 
 function tick() {
-  if (paused || !game || game.rematch || (mode !== "solo" && mode !== "host" && mode !== "local" && mode !== "story")) return;
-  const g = game, s = g.s;
+  if (paused || !game || game.rematch || (mode !== "solo" && mode !== "host" && mode !== "local" && mode !== "story" && mode !== "replay")) return;
+  const g = game, s = g.s, replaying = mode === "replay";
+  if (replaying && rp.ended) return;
   if (g.wait > 0) {
     // Hold on the recap until the player dismisses it (capped so a host never stalls the guests for long).
     if (g.wait === 1 && recapOn && (g.hold = (g.hold || 0) + 1) < (mode === "host" ? 900 : 5400)) return;
     if (--g.wait === 0) {
       g.hold = 0;
+      if (g.over && replaying) { rp.ended = true; return; }
       if (g.over && g.story) {
         const ok = g.scores[0] > g.scores[1];
         toMenu();
@@ -325,7 +346,7 @@ function tick() {
       }
       if (g.over) { g.rematch = true; return; }
       g.banner = "";
-      g.s = makeGame(g.n, g.story);
+      g.s = replaying ? replayRound(g, rp.r + 1) : makeGame(g.n, g.spec, ++g.nr);
       sentGrid = "";
       if (g.story) { g.round++; g.banner = roundBanner(g); g.intro = INTRO; }
       else modeIntro(g);
@@ -336,37 +357,35 @@ function tick() {
     if (--g.intro === 0) g.banner = "";
     return;
   }
-  const allOut = mode === "solo" || mode === "story" ? !s.players[0].alive : mode === "local" && s.players.every((p) => p.id >= humans.length || !p.alive);
+  if (replaying && !s.done && s.tick >= rp.rounds[rp.r].tk) { rp.ended = true; return; }
+  const allOut = replaying ? false : mode === "solo" || mode === "story" ? !s.players[0].alive : mode === "local" && s.players.every((p) => p.id >= humans.length || !p.alive);
   for (let k = 0; k < (allOut ? 3 : 1) && !s.done; k++) {
-    const inputs = {};
+    let inputs = {};
+    if (replaying) {
+      inputs = rp.inputs(s);
+      const q = inputs[Math.max(g.me, 0)], k = q && (q.dx || q.dy) ? FACES.findIndex(([x, y]) => x === q.dx && y === q.dy) : -1;
+      if (k >= 0) fps.face = k;
+      rp.note(s);
+      step(s, inputs);
+      continue;
+    }
     if (mode === "local") humans.forEach((n, i) => (inputs[i] = i || !fpsOn() ? merge([n]) : faceIn(merge([n]), 0)));
     else inputs[0] = allInputs();
     for (const p of s.players) {
       if (mode === "local" ? p.id < humans.length : p.id === 0) continue;
       if (isBot(p.id)) {
-        if ((s.tick + p.id) % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, g.story ? g.story.level : settings.bot);
+        if ((s.tick + p.id) % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, g.spec ? g.spec.level : settings.bot);
         inputs[p.id] = { ...botMem[p.id] };
         if (botMem[p.id]) botMem[p.id].bomb = botMem[p.id].act = false;
       } else inputs[p.id] = inboxes[p.id].next();
     }
-    step(s, inputs);
+    rec ? rec.step(s, inputs) : step(s, inputs);
     clearBombs();
   }
   if (!s.done) return;
-  if (s.survival) {
-    const w = s.survival.wave, t = Math.floor(s.survival.t / 60);
-    g.over = true;
-    g.banner = w ? `Survived ${w} wave${w > 1 ? "s" : ""} · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}` : "Wiped out before wave 1";
-    g.wait = 180;
-    return;
-  }
-  const tm = s.cfg.teams, who = (id) => (tm ? `Team ${teamInfo(tm[id]).name}` : g.names[id]);
-  if (s.winnerTeam >= 0) s.players.forEach((p) => tm[p.id] === s.winnerTeam && g.scores[p.id]++);
-  else if (s.winner >= 0) g.scores[s.winner]++;
-  const champ = g.scores.findIndex((x) => x >= g.win);
-  g.over = champ >= 0;
-  g.banner = g.story ? (g.over ? (champ === 0 ? "VICTORY!" : "YOU LOSE") : s.winner === 0 ? "KABOOM!" : s.winner > 0 ? "OUCH!" : "DRAW!") : g.over ? `${who(champ)} wins the match!` : s.winner >= 0 ? `${who(s.winner)} wins the round` : "Draw";
-  g.wait = 180;
+  if (replaying) rp.check(s);
+  else rec?.end(s);
+  if (settle(g) && rec) g.pending = true;
 }
 
 function endMatch() {
@@ -470,6 +489,7 @@ function syncRematch() {
   $("again").hidden = $("rematchWait").hidden = false;
   if (mode === "guest") $("again").hidden = true;
   else $("rematchWait").hidden = true;
+  paintRematch();
 }
 
 function showHostLobby() {
@@ -560,9 +580,9 @@ const leave = () => {
   toMenu();
   if (inStory) storyUi.open();
 };
-$("quit").onclick = () => (mode === "story" ? leave() : mode === "host" ? endMatch() : toMenu());
+$("quit").onclick = () => (mode === "replay" ? exitReplay() : mode === "story" ? leave() : mode === "host" ? endMatch() : toMenu());
 $("lobbyBack").onclick = $("rematchMenu").onclick = () => (mode === "host" ? endMatch() : toMenu());
-$("again").onclick = () => game?.rematch && mode !== "guest" && startMatch(game.n);
+$("again").onclick = () => game?.rematch && mode !== "guest" && (game.daily ? startDaily(game.daily) : startMatch(game.n));
 $("copyLink").onclick = async () => {
   const link = $("inviteLink");
   try {
@@ -671,7 +691,7 @@ function fillRecap(el, g, over) {
 
 function syncRecap(g) {
   if (!g.s.done) recapOff = false;
-  const want = settings.recap && g.s.done && !g.rematch && !recapOff;
+  const want = settings.recap && g.s.done && !g.rematch && !recapOff && mode !== "replay";
   if (want === recapOn) return;
   recapOn = want;
   const el = $("recap");
@@ -694,14 +714,17 @@ function feelStep(g) {
   fx.still = still;
   fx.timeFx = fxOn && (mode === "solo" || mode === "local" || mode === "story");
   fx.punch = fxOn;
-  fx.chat = settings.announcer && !still && mode === "story";
+  fx.chat = settings.announcer && !still && (mode === "story" || (mode === "replay" && !!g.story));
   g.call = fd.update(g.s, clock, fx);
   extraCalls(g.s);
   g.bub = fd.bub;
   g.clock = clock;
-  g.ts = ts = fx.timeFx ? timeScale(fd, clock) : 1;
+  const slow = fx.timeFx ? timeScale(fd, clock) : 1;
+  ts = mode === "replay" ? rpSpeed : slow;
+  g.ts = mode === "replay" ? 1 : slow;
   if (fd.punch) { punch(fd.punch); fd.punch = null; }
   syncRecap(g);
+  if (g.pending) { g.pending = false; commit(g).catch(console.error); }
 }
 
 // Second touch button and the pad's X key exist only in games with abilities; the button fills while the cooldown runs.
@@ -736,7 +759,8 @@ function loop(now) {
   if (game && !paused) feelStep(game);
   syncAct();
   syncRematch();
-  if (game && !paused) rumble(game);
+  if (mode === "replay") syncReplay();
+  if (game && !paused && mode !== "replay") rumble(game);
   if (game && !paused) {
     if (!sndGame) enterGame(game);
     snd.ctx.me = mode === "local" ? -1 : game.me;
@@ -827,7 +851,164 @@ $("vibTest").onclick = () => {
   haptics.fire("test", { phone: true, pads: Object.keys(sources).filter((n) => n.startsWith("pad")) });
   $("vibStatus").textContent = vibrationReport(vibSent);
 };
-addEventListener("keydown", (e) => e.code === "Escape" && $("settings").classList.contains("on") && show("menu"));
+addEventListener("keydown", (e) => e.code === "Escape" && document.querySelector("#settings.on, #daily.on, #replays.on") && show("menu"));
+
+// ---- replays, daily challenge ------------------------------------------------------------------------------------------
+
+const store = (() => { try { return localStorage; } catch { return { getItem: () => null, setItem() { throw new Error("no storage"); } }; } })();
+const replays = createReplayList({ storage: store, watch: (m, back) => startReplay(m, back) });
+const daily = createDailyUi({ storage: store, play: (spec) => { toMenu(); startDaily(spec); }, watch: (m, back) => startReplay(m, back) });
+const playbar = createPlaybar({
+  state: () => ({ pb: rp, g: game, paused, speed: rpSpeed }),
+  pause: setPause,
+  speed: (x) => (rpSpeed = x),
+  seek: (T) => seekReplay(T),
+  restart: () => startReplay(rp.match, rpBack, rp, rpKeep),
+  next: () => rp.r + 1 < rp.rounds.length && seekReplay(rp.off[rp.r + 1]),
+});
+
+function openDaily() { daily.render(); show("daily"); }
+function openReplays() { replays.render(); show("replays"); }
+
+function startDaily(spec) {
+  mode = "solo";
+  clearBombs();
+  setSuits([spec.fighter.color]);
+  startMatch(spec.n, null, displayNames(spec.n, [true], [myName() || spec.fighter.name], settings.cb ? PNUM : undefined), spec);
+}
+
+async function commit(g) {
+  const m = rec.finish({ nm: g.names.map(String), rs: g.banner });
+  rec = null;
+  g.replay = m;
+  const s = g.s;
+  const res = { won: !s.survival && g.scores[0] >= g.win, ticks: m.r.reduce((a, x) => a + x.tk, 0), kills: fd.tracker.total().kills[0] | 0, waves: s.survival?.wave | 0, points: s.hill?.score[0] | 0 };
+  replays.add(m).catch(console.error);
+  if (!g.daily) return;
+  g.dailyRes = await daily.submit(g.daily, res, m);
+  if (game === g) paintRematch();
+}
+
+function paintRematch() {
+  const g = game;
+  if (!g?.rematch) return;
+  $("rmShare").hidden = !g.replay;
+  const d = g.dailyRes;
+  $("rmDaily").textContent = d ? `Score ${d.value}${d.better ? " (new best!)" : ` (best ${d.best})`}\n${d.line}\nStreak ${d.streak} day${d.streak === 1 ? "" : "s"} · ${d.tries} ${d.tries === 1 ? "try" : "tries"}` : g.daily ? "Saving your score…" : "";
+  $("again").textContent = g.daily ? "Try again" : "Play again";
+}
+
+const faceReset = (s) => { const p = s.players[Math.max(game?.me ?? 0, 0)]; fps.face = p && p.x < (W * T) / 2 ? 1 : 3; };
+
+function replayRound(g, r) {
+  if (r >= rp.rounds.length) { rp.ended = true; return g.s; }
+  const s = rp.make(r);
+  faceReset(s);
+  return s;
+}
+
+function startReplay(match, back = "menu", pb = createPlayback(match), keepable = false) {
+  toMenu();
+  const st = pb.story;
+  rp = pb;
+  rp.ended = false;
+  rpBack = back;
+  rpKeep = keepable;
+  mode = "replay";
+  clearBombs();
+  if (st) setSuits([BY_ID[st.id].color, BY_ID[st.foe].color]);
+  else if (match.fg) setSuits([BY_ID[match.fg].color]);
+  if (match.k === "local") humans = Array.from({ length: (match.hm.toString(2).match(/1/g) || []).length }, () => "kb1");
+  const s = rp.make(0);
+  game = {
+    s, n: match.n, scores: Array(match.n).fill(0), banner: "", wait: 0, over: false, me: match.k === "local" ? -1 : 0, win: match.w,
+    names: Array.from({ length: match.n }, (_, i) => match.nm[i] || PNUM[i]), story: st, spec: null, nr: 1, retro: !!st, round: 1, intro: st ? INTRO : 0,
+  };
+  if (st) game.banner = roundBanner(game);
+  else modeIntro(game);
+  rpSpeed = 1;
+  ts = 1;
+  fps.reset();
+  faceReset(s);
+  $("pauseBtn").hidden = true;
+  document.body.classList.add("replaying");
+  playbar.show(true);
+  enterGame(game);
+  show("game");
+}
+
+function seekReplay(T) {
+  const { r, s, scores } = rp.seek(T);
+  Object.assign(game, { s, scores, banner: "", wait: 0, intro: 0, over: false, hold: 0, rematch: false });
+  if (game.story) game.round = r + 1;
+  rp.ended = false;
+  resetFeel();
+  faceReset(s);
+  enterGame(game);
+  dirty = true;
+}
+
+let endShown = false;
+function syncReplay() {
+  playbar.sync();
+  if (rp.ended === endShown) return;
+  endShown = rp.ended;
+  $("rpEnd").classList.toggle("on", endShown);
+  if (!endShown) return;
+  $("rpKeep").hidden = !rpKeep;
+  $("rpNote").textContent = rp.drift ? "This replay no longer matches the game (made with another version or browser): the end may differ." : "";
+  $("rpAgain").focus();
+}
+
+function exitReplay() {
+  const back = rpBack;
+  toMenu();
+  if (back === "replays") openReplays();
+  else if (back === "daily") openDaily();
+}
+
+$("dailyBtn").onclick = openDaily;
+$("replaysBtn").onclick = openReplays;
+$("dailyBack").onclick = $("repBack").onclick = () => show("menu");
+$("repOpen").onclick = () => $("repFile").click();
+$("repFile").onchange = async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  const r = await readFile(f);
+  if (r.match) startReplay(r.match, "replays", undefined, true);
+  else notify(ERR[r.error]);
+};
+$("rpAgain").onclick = () => startReplay(rp.match, rpBack, rp, rpKeep);
+$("rpBack").onclick = exitReplay;
+$("rpLink").onclick = () => shareReplay(rp.match);
+$("rpKeep").onclick = () => { replays.add(rp.match).then(() => notify("Kept in your replays.")).catch(console.error); rpKeep = false; $("rpKeep").hidden = true; };
+$("rmWatch").onclick = () => game?.replay && startReplay(game.replay, "menu");
+$("rmLink").onclick = () => game?.replay && shareReplay(game.replay);
+$("rmCard").onclick = async () => {
+  const g = game;
+  if (!g?.replay) return;
+  const text = `${g.banner} on Kaboom Arena`;
+  const r = g.dailyRes
+    ? await daily.card(g.daily, g.dailyRes)
+    : await shareCard({ head: titleOf(g.replay), title: g.banner, rules: rulesOf(g.replay.r[0].o), bigLabel: g.s.survival ? "WAVES" : "ROUNDS", big: g.s.survival ? String(g.s.survival.wave) : g.scores.slice(0, g.n).join("-"), line: g.names.slice(0, g.n).join(" · "), host: location.host }, { text, url: location.origin });
+  if (r === "saved") notify("Score card saved as a PNG.");
+};
+addEventListener("keydown", (e) => {
+  if (mode !== "replay" || e.repeat || e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|BUTTON)$/.test(e.target.tagName)) return;
+  if (e.code === "Space") { e.preventDefault(); setPause(!paused); }
+  else if (e.code === "ArrowLeft" || e.code === "ArrowRight") seekReplay(Math.max(0, rp.at(game.s) + (e.code === "ArrowLeft" ? -300 : 300)));
+});
+
+async function openFragment() {
+  const frag = fragmentOf(location.hash);
+  if (frag === null) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  const r = await unpack(frag);
+  if (r.match) startReplay(r.match, "menu", undefined, true);
+  else toMenu(ERR[r.error]);
+}
+openFragment();
+addEventListener("hashchange", openFragment);
 
 const invite = roomFromSearch(location.search);
 if (invite) {

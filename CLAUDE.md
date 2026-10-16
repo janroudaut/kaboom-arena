@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs determinism.test.mjs specials.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs determinism.test.mjs specials.test.mjs replay.test.mjs daily.test.mjs sharecard.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -82,6 +82,11 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - Mines are non-solid, never use bomb slots and are hidden unless `mineSeen` (owner and team; the snapshot still carries them: same class as the host-can-cheat limit). Ice flames freeze instead of killing (shield resists, a normal blast still kills a frozen player).
 - Wire: input code +18 = ability key (`createInbox` accepts < 36), ice flames pack as `[x, y, t, 1]`. Keys: kb1 E/Left Shift, kb2 Right Shift/Numpad0/0, pad X (button 2) only when `pads.act` is set (otherwise any button bombs), touch `#actBtn`. First person uses the last walked direction.
 - Known pre-existing stalls (not caused by this feature): a teleporter pad can land a bot in a soft-wall pocket; bot-only survival may never end. Bot ability use lives in `ai.js` (`escapeAct`, mine planting).
+
+## Replays, daily challenge, share cards (all client-side)
+- `replay.js` (pure): `rec.step(s, inputs)` records every player's input (bots included) before `step`; binary format "KB" v1 (varint runs `(len-1)*36 + code`, JSON head with per-round seed/opts/end-state hash `h`), deflate + base64url text; `decode`/`unpack` never throw (`{match}` or `{error: "version"|"corrupt"}`, strict allow-lists and hard caps). Playback with keyframes every 300 ticks for seeking; `settle` is the shared round-end scoring used by live matches and replays. **Bump `SIM_VERSION` whenever `sim.js` behaviour changes**, and never innerHTML a replay field.
+- `main.js` `mode = "replay"` re-runs `tick()` with recorded inputs, so all four renderers, sound and banners work unchanged (recap, haptics and slow-mo are off). The last 10 finished matches live in localStorage `replays` (450 KB cap). Links are `/#r=<text>` capped at 8000 characters (trimmed to the last round, else a `.kaboom` file); there is no `?replay=<id>` because nothing is stored server-side.
+- `daily.js` + `dailyui.js`: UTC date key, 14 curated rules rotated by day, fixed fighter/colour/ability per rule, one score formula (`score()`, tested) per mode family, streak and best in localStorage `daily`. `sharecard.js`: pure 1200x630 `cardLayout` plus canvas glue (`navigator.share({files})` or PNG download).
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).
