@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -21,6 +21,12 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - `settings.js` (pure, tested in `settings.test.mjs`) holds the match options: bot level, rounds to win, arena layout, theme, power-ups, sudden death, teams, friendly fire. They persist in localStorage (`settings`), apply to solo, local and the online host, and `roundOpts` builds the `newGame` options for every round. Teams are `[0,1,0,1]` and only exist with exactly 4 players.
 - Themes are purely visual and live in `look.js` for both renderers (2D palette + a `d3` block for 3D). The host sets `s.cfg.theme` after `newGame`; unknown themes fall back to grass. A new theme needs both blocks.
 - `cfg` (theme, teams, layout...) only travels with grid snapshots, so a guest always has it when it first renders. The snapshot wrapper also carries `w` (rounds to win).
+
+## Accessibility, feedback and UX modules
+- `look.js` also holds the player palette (standard and colour-blind, Okabe-Ito) and team colours: `palette()` and `teamInfo()` read `view.cb`, which `main.js` sets from `settings.cb`. Any new colour consumer must go through them, no local tables. Colour-blind mode also shows a 1-4 tag above heads and digits in HUD chips.
+- `haptics.js` is pure and injectable (tests in `haptics.test.mjs`): phone `navigator.vibrate` and gamepad rumble (`vibrationActuator.playEffect("dual-rumble")`, legacy `hapticActuators` fallback), throttled, gated by the `vibrate`/`rumble`/`intensity` settings. `observe(mem, state)` derives events from successive game states so it works the same for solo, host and guest; in local mode rumble goes to the affected player's pad only.
+- `settings.js` also holds `cb`, `reduce` (auto/on/off, see `reduced()`), `vibrate`, `rumble`, `intensity`; fields flagged `a11y: true` render in the "Accessibility & feedback" group. Reduce motion stops 3D camera shake and sparks (`r3.setStill`) and the home attract loop (`home.js` `setStill`); it adds no timers.
+- `ux.js`: tutorial overlay (`helpSeen` flag), `beforeinstallprompt` capture plus an iOS "Add to Home Screen" hint, and the "New version available" toast (relies on the service worker's `skipWaiting`/`clients.claim`, so Reload is just `location.reload()`).
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).

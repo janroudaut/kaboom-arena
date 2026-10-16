@@ -1,10 +1,8 @@
 import { W, H, T, SUDDEN } from "./sim.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view } from "./look.js";
 
 export const CW = W * T, CH = H * T + 16;
 export const NAMES = ["White", "Black", "Red", "Blue"];
-const SUIT = ["#f2f2f2", "#454556", "#e8453c", "#3c7be8"];
-const SUIT_DARK = ["#b8b8c4", "#262633", "#a32a24", "#2452a8"];
 const TOP = 16;
 
 function sprite(w, h, fn) {
@@ -157,7 +155,14 @@ function flames(c, fs) {
   }
 }
 
+function tag(c, n, x, y) {
+  c.font = "bold 8px monospace"; c.textAlign = "center";
+  c.lineWidth = 2.5; c.strokeStyle = "#000"; c.strokeText(n, x, y);
+  c.fillStyle = "#fff"; c.fillText(n, x, y);
+}
+
 function player(c, p, v, team, tick) {
+  const { suit: SUIT, dark: SUIT_DARK } = palette();
   const step = p.walk % 14 < 7 ? 1 : -1;
   const moving = p.walk !== p.lastWalk;
   p.lastWalk = p.walk;
@@ -189,6 +194,7 @@ function player(c, p, v, team, tick) {
   c.fillStyle = "#e8453c"; c.fillRect(x - 1, y - 13 - bob, 3, 3);
   c.fillStyle = "#fff"; c.fillRect(x, y - 12 - bob, 1, 1);
   if (p.curse) c.drawImage(ICONS[7], x - 4.5, y - 27 + Math.round(Math.sin(tick / 5)), 9, 9);
+  if (view.cb) tag(c, p.id + 1, x, y - 16 - bob);
   if (p.shield > 0) {
     c.beginPath(); c.ellipse(x, y - 3, 11, 13, 0, 0, 7);
     c.fillStyle = p.shield < 60 && p.shield % 10 < 5 ? "rgba(90,220,255,.1)" : "rgba(90,220,255,.28)";
@@ -201,9 +207,11 @@ function isBlock(g, x, y) { return x >= 0 && y >= 0 && x < W && y < H && g[y * W
 
 function hud(c, g) {
   const s = g.s, tm = teamsOf(s), rows = hudEntries(g);
+  const SUIT = palette().suit;
   c.font = "bold 8px monospace"; c.textAlign = "left";
   const mark = (e, x) => {
     disc(c, x + 4, 8, 4.5, e.alive ? SUIT[e.i] : "#444");
+    if (view.cb) { tag(c, e.i + 1, x + 4, 11); c.textAlign = "left"; }
     if (!e.alive) { c.fillStyle = "#e8453c"; c.fillRect(x + 1, 7, 6, 2); }
     if (e.i === g.me) { c.strokeStyle = "#ffd23c"; c.lineWidth = 1; c.beginPath(); c.arc(x + 4, 8, 5.5, 0, 7); c.stroke(); }
   };

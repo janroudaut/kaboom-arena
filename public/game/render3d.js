@@ -9,10 +9,8 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 import { W, H, T, SUDDEN, FLAME } from "./sim.js";
 import { ICONS } from "./render.js";
 import { esc } from "./lobby.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view } from "./look.js";
 
-const SUIT = [0xf2f2f2, 0x454556, 0xe8453c, 0x3c7be8];
-const CSS_SUIT = ["#f2f2f2", "#454556", "#e8453c", "#3c7be8"];
 const MOBILE = matchMedia("(pointer: coarse)").matches;
 const FLAME_LIGHTS = MOBILE ? 2 : 6, MAX_PARTICLES = 400;
 const FACE_ANGLE = [Math.PI, Math.PI / 2, 0, -Math.PI / 2];
@@ -74,9 +72,9 @@ const brickTexture = ([base, hue, sat, light]) => canvasTexture(128, 128, (c) =>
   }
 });
 
-function makePlayer(id, skullMat, auraMat) {
+function makePlayer(id, skullMat, auraMat, tagMat) {
   const root = new THREE.Group();
-  const suit = new THREE.MeshStandardMaterial({ color: SUIT[id], roughness: 0.35, metalness: 0.15 });
+  const suit = new THREE.MeshStandardMaterial({ color: palette().suit[id], roughness: 0.35, metalness: 0.15 });
   const skin = new THREE.MeshPhysicalMaterial({ color: 0xffd9b0, roughness: 0.5 });
   const black = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 });
   const add = (geo, mat, x, y, z, parent = root) => {
@@ -131,11 +129,14 @@ function makePlayer(id, skullMat, auraMat) {
   const aura = new THREE.Sprite(auraMat);
   aura.position.y = 0.8;
   aura.scale.setScalar(1.6);
-  for (const o of [ring, bubble, skull, aura]) o.visible = false;
-  root.add(ring, bubble, skull, aura);
+  const tag = new THREE.Sprite(tagMat);
+  tag.position.y = 1.55;
+  tag.scale.setScalar(0.4);
+  for (const o of [ring, bubble, skull, aura, tag]) o.visible = false;
+  root.add(ring, bubble, skull, aura, tag);
 
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  root.userData = { head, eyes, legs, arms, neural, skin, ring, bubble, skull, aura, lastWalk: 0 };
+  root.userData = { head, eyes, legs, arms, neural, skin, suit, ring, bubble, skull, aura, tag, lastWalk: 0 };
   root.scale.setScalar(1.15);
   return root;
 }
@@ -291,6 +292,14 @@ export function createRenderer3D(canvas, hudParent) {
     grad.addColorStop(0, "#fff"); grad.addColorStop(0.4, "#ffffff88"); grad.addColorStop(1, "#ffffff00");
     c.fillStyle = grad; c.fillRect(0, 0, 64, 64);
   });
+  const tagMats = [1, 2, 3, 4].map((n) => new THREE.SpriteMaterial({
+    map: canvasTexture(64, 64, (c) => {
+      c.font = "bold 52px monospace"; c.textAlign = "center"; c.textBaseline = "middle";
+      c.lineWidth = 10; c.strokeStyle = "#000"; c.strokeText(n, 32, 34);
+      c.fillStyle = "#fff"; c.fillText(n, 32, 34);
+    }),
+    depthTest: false,
+  }));
   const auraMat = new THREE.SpriteMaterial({ map: puffTex, color: 0xb040ff, opacity: 0.45, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
   const puffMats = [0xff6a1a, 0xffc060].map((color) => new THREE.SpriteMaterial({ map: puffTex, color, opacity: 0.22, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
   const sparkGeo = new THREE.BufferGeometry();
@@ -315,7 +324,7 @@ export function createRenderer3D(canvas, hudParent) {
   hudParent.appendChild(hud);
   const [elScores, elBadge, elBanner, elSpec] = hud.children;
 
-  let dlss = true, scale = MOBILE ? 0.7 : 1, w = 1, h = 1, shake = 0;
+  let dlss = true, scale = MOBILE ? 0.7 : 1, w = 1, h = 1, shake = 0, still = false;
   const dpr = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 2);
   const MIN_SCALE = MOBILE ? 0.4 : 0.5;
   let frames = 0, acc = 0, fps = 60, lastNow = performance.now(), lastScale = lastNow;
@@ -339,6 +348,7 @@ export function createRenderer3D(canvas, hudParent) {
   }
 
   function emit(x, z) {
+    if (still) return;
     for (let k = 0; k < 6; k++) {
       const i = spark.next++ % MAX_PARTICLES;
       sparkPos.set([x, 0.4, z], i * 3);
@@ -364,7 +374,7 @@ export function createRenderer3D(canvas, hudParent) {
 
   function updateHud(g, now) {
     const s = g.s, tm = teamsOf(s);
-    const one = (e) => `<span style="--c:${CSS_SUIT[e.i]}" class="${e.alive ? "" : "dead"} ${e.i === g.me ? "me" : ""}">${esc(e.name)} ${tm ? "" : e.score}${e.i === g.me ? " (you)" : ""}</span>`;
+    const one = (e) => `<span style="--c:${palette().suit[e.i]}" data-n="${view.cb ? e.i + 1 : ""}" class="${e.alive ? "" : "dead"} ${e.i === g.me ? "me" : ""}">${esc(e.name)} ${tm ? "" : e.score}${e.i === g.me ? " (you)" : ""}</span>`;
     const rows = hudEntries(g);
     const scores = tm
       ? [...new Set(rows.map((e) => e.team))].map((t) => {
@@ -423,10 +433,12 @@ export function createRenderer3D(canvas, hudParent) {
     hardMesh.instanceMatrix.needsUpdate = softMesh.instanceMatrix.needsUpdate = true;
 
     s.players.forEach((p, i) => {
-      if (!players[i]) { players[i] = makePlayer(i, itemMats[7], auraMat); scene.add(players[i]); setDlss(dlss); }
+      if (!players[i]) { players[i] = makePlayer(i, itemMats[7], auraMat, tagMats[i]); scene.add(players[i]); setDlss(dlss); }
       const m = players[i], u = m.userData;
       m.visible = p.alive;
       if (!p.alive) return;
+      u.tag.visible = view.cb;
+      if (u.pal !== palette()) { u.pal = palette(); u.suit.color.set(u.pal.suit[i]); }
       u.ring.visible = !!tm;
       if (tm) u.ring.material.color.set(teamInfo(tm[i]).col);
       u.bubble.visible = p.shield > 0 && !(p.shield < 60 && p.shield % 10 < 5);
@@ -501,7 +513,7 @@ export function createRenderer3D(canvas, hudParent) {
       o.scale.setScalar((0.8 + Math.random() * 0.5) * e);
     });
     for (const f of fresh) emit(f.x + 0.5, f.y + 0.5);
-    if (fresh.length) shake = Math.min(1, shake + 0.35);
+    if (fresh.length && !still) shake = Math.min(1, shake + 0.35);
     flameLights.forEach((l, i) => {
       const f = s.flames[Math.floor((i * s.flames.length) / FLAME_LIGHTS)];
       l.intensity = f ? 9 * Math.min(1, f.t / FLAME) : 0;
@@ -542,5 +554,5 @@ export function createRenderer3D(canvas, hudParent) {
   addEventListener("keydown", (e) => { if (e.code === "KeyT" && e.target.tagName !== "INPUT" && hud.offsetParent) setDlss(!dlss); });
   addEventListener("resize", resize);
   resize();
-  return { draw, resize, setDlss, hud, get dlss() { return dlss; } };
+  return { draw, resize, setDlss, hud, setStill: (on) => { still = on; shake = 0; }, get dlss() { return dlss; } };
 }

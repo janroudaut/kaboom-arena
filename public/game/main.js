@@ -5,8 +5,11 @@ import { createInput, merge, sources, clearBombs, labelOf } from "./input.js";
 import { joinRoom, newCode, cid } from "./net.js";
 import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
-import { teamInfo } from "./look.js";
-import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts } from "./settings.js";
+import { teamInfo, view } from "./look.js";
+import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, roundOpts, reduced } from "./settings.js";
+import { createHaptics, browserVibrate, browserRumble, observe } from "./haptics.js";
+import { setStill } from "./home.js";
+import { initHelp, initInstall, watchUpdates } from "./ux.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c"), ctx = canvas.getContext("2d");
@@ -18,7 +21,21 @@ let mode = null, game = null, room = null, slots = [], inboxes = {}, botMem = {}
 let frame = 0, lastSnap = 0, joinTimer = 0, humans = [];
 let names = [], pnames = [], joined = false, lostAt = 0, subOk = false, resub = false, rmShown = false;
 const RECONNECT_MS = 30000;
+const PNUM = [1, 2, 3, 4].map((i) => `P${i}`);
 let settings = loadSettings();
+const motion = matchMedia("(prefers-reduced-motion: reduce)");
+const haptics = createHaptics({ vibrate: browserVibrate, rumble: browserRumble, settings: () => settings });
+let feel = {};
+
+function applyLook() {
+  feel = {};
+  view.cb = settings.cb;
+  const still = reduced(settings, motion.matches);
+  setStill(still);
+  r3?.setStill(still);
+  dirty = true;
+}
+motion.addEventListener?.("change", applyLook);
 let gnet = null, lastGrid = null, lastCfg = null, sentGrid = "", snapCount = 0, rtt = 0, pingTimer = 0;
 const GFX = ["classic", "3d", "dlss"];
 let gfx = "classic", r3 = null;
@@ -41,6 +58,7 @@ async function applyGfx() {
     try {
       const { createRenderer3D } = await import("./render3d.js");
       r3 = createRenderer3D($("c3"), $("game"));
+      r3.setStill(reduced(settings, motion.matches));
     } catch (err) {
       console.error(err);
       gfx = "classic";
@@ -75,6 +93,7 @@ function toMenu(msg = "") {
   inboxes = {};
   botMem = {};
   humans = [];
+  feel = {};
   gnet = lastGrid = lastCfg = null;
   names = pnames = [];
   joined = subOk = resub = false;
@@ -134,13 +153,14 @@ function makeGame(n) {
 }
 
 function startMatch(n) {
-  const labels = mode === "local" ? [1, 2, 3, 4].map((i) => `P${i}`) : undefined;
+  const labels = mode === "local" || settings.cb ? PNUM : undefined;
   const who = mode === "local" ? humans.map(() => true) : mode === "host" ? slots.map(Boolean) : [true];
   game = {
     s: makeGame(n), scores: Array(n).fill(0), banner: "", wait: 0, over: false, me: mode === "local" ? -1 : 0, win: settings.rounds,
     names: displayNames(n, who, mode === "host" ? names : [myName()], labels),
   };
   botMem = {};
+  feel = {};
   sentGrid = "";
   $("pauseBtn").hidden = mode !== "solo" && mode !== "local";
   show("game");
@@ -244,7 +264,7 @@ function onMsg(m) {
     clearLost();
     slots = m.slots.slice(0, 4).map((c) => (typeof c === "string" ? c : null));
     names = Array.isArray(m.names) ? m.names.slice(0, 4).map(cleanName) : [];
-    pnames = displayNames(4, [0, 1, 2, 3].map((i) => !!slots[i]), names);
+    pnames = displayNames(4, [0, 1, 2, 3].map((i) => !!slots[i]), names, settings.cb ? PNUM : undefined);
     renderLobby();
     $("lobbyInfo").textContent = "Waiting for the host to start…";
     if (!game) show("lobby");
@@ -412,6 +432,17 @@ function guestTick() {
   if (m) room.send({ t: "in", ...m });
 }
 
+function rumble(g) {
+  if (!settings.vibrate && !settings.rumble) return;
+  const pads = Object.keys(sources).filter((n) => n.startsWith("pad"));
+  for (const { id, kind, scale } of observe(feel, g.s)) {
+    if (mode === "local") {
+      const src = humans[id];
+      if (src) haptics.fire(kind, { phone: src === "touch", pads: src.startsWith("pad") ? [src] : [] }, scale);
+    } else if (id === g.me) haptics.fire(kind, { phone: true, pads }, scale);
+  }
+}
+
 let last = performance.now(), acc = 0, lastErr = "";
 function loop(now) {
   acc += Math.min(now - last, 100);
@@ -428,6 +459,7 @@ function loop(now) {
   if (lostAt && performance.now() - lostAt > RECONNECT_MS) toMenu("Connection lost.");
   if (mode === "guest" && game && gnet) game.s = gnet.frame(performance.now());
   syncRematch();
+  if (game && !paused) rumble(game);
   if (game && (!paused || dirty)) {
     dirty = false;
     try {
@@ -440,7 +472,10 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+applyLook();
+watchUpdates();
+initInstall();
+initHelp([$("helpBtn"), $("pauseHelp")]);
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest?.("button");
@@ -448,7 +483,7 @@ document.addEventListener("click", (e) => {
 });
 
 function markSettings() {
-  for (const seg of document.querySelectorAll("#setList .seg")) {
+  for (const seg of document.querySelectorAll("#settings .seg")) {
     for (const b of seg.children) b.setAttribute("aria-checked", b.dataset.v === JSON.stringify(settings[seg.dataset.key]));
   }
 }
@@ -464,14 +499,17 @@ for (const f of FIELDS) {
     const b = Object.assign(document.createElement("button"), { textContent: text });
     b.setAttribute("role", "radio");
     b.dataset.v = JSON.stringify(v);
-    b.onclick = () => { settings[f.key] = v; saveSettings(settings); markSettings(); };
+    b.onclick = () => { settings[f.key] = v; saveSettings(settings); markSettings(); applyLook(); };
     seg.append(b);
   }
-  $("setList").append(label, seg);
+  $(f.a11y ? "a11yList" : "setList").append(label, seg);
 }
 $("settingsBtn").onclick = () => { markSettings(); show("settings"); $("setBack").focus(); };
 $("setBack").onclick = () => show("menu");
-$("setReset").onclick = () => { settings = { ...DEFAULTS }; saveSettings(settings); markSettings(); };
+$("setReset").onclick = () => { settings = { ...DEFAULTS }; saveSettings(settings); markSettings(); applyLook(); };
+$("vibTest").onclick = () => {
+  haptics.fire("test", { phone: true, pads: Object.keys(sources).filter((n) => n.startsWith("pad")) });
+};
 addEventListener("keydown", (e) => e.code === "Escape" && $("settings").classList.contains("on") && show("menu"));
 
 const invite = roomFromSearch(location.search);

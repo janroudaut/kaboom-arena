@@ -135,6 +135,25 @@
   .hint span { white-space: nowrap; }
   .hint a { color: var(--yellow); white-space: nowrap; }
   .hint { text-wrap: balance; }
+  .chips { justify-content: center; }
+  .chips .chip { flex: 1 1 0; justify-self: auto; }
+  #installBtn[hidden], #iosHint[hidden], #help[hidden], #toast[hidden] { display: none; }
+  #settings h3 { margin: 6px 0 -2px; text-align: center; font-size: .9rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
+  #a11yList .label { text-transform: none; letter-spacing: .02em; font-size: .8rem; }
+  #help { position: fixed; inset: 0; z-index: 20; display: flex; justify-content: safe center; align-items: center; overflow-y: auto; padding: 8px; background: #0b0b12e6; }
+  #help .menu-col { flex: none; width: min(94vw, 460px); gap: 8px; background: #14141f; }
+  #help h2 { margin: 0; text-align: center; font-size: 1.4rem; text-transform: uppercase; letter-spacing: .15em; color: var(--yellow); }
+  #help ol, #help ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: .9rem; }
+  #help li { display: flex; gap: 10px; align-items: center; }
+  .pic { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: #ffffff18; font-size: 1.2rem; }
+  .items { grid-template-columns: 1fr 1fr; gap: 6px 10px !important; font-size: .78rem !important; line-height: 1.2; }
+  .items canvas { flex: none; width: 28px; height: 28px; }
+  .keys { font-size: .82rem !important; gap: 4px !important; }
+  .keys b { color: var(--yellow); min-width: 5.5em; display: inline-block; }
+  .keys li { align-items: baseline; }
+  #toast { position: fixed; z-index: 30; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 8px 8px 8px 16px; border-radius: 14px; background: #14141f; border: 1px solid var(--yellow); box-shadow: 0 6px 24px #000a; white-space: nowrap; font-size: .9rem; }
+  #toast button { min-width: 0; padding: 6px 12px; }
+  .h3-scores span[data-n]:not([data-n=""])::before { content: attr(data-n); display: grid; place-items: center; font-size: 11px; line-height: 1; -webkit-text-stroke: 2.5px #000; paint-order: stroke fill; color: #fff; }
   @media (max-height: 760px) {
     .hero { gap: 10px; }
     .menu-col { gap: 7px; padding: 10px; }
@@ -183,7 +202,9 @@
         <button role="radio" data-gfx="3d">3D</button>
         <button role="radio" data-gfx="dlss">DLSS 5 ✨</button>
       </div>
-      <button id="settingsBtn" class="chip">⚙ Match settings</button>
+      <div class="row chips"><button id="helpBtn" class="chip">? How to play</button><button id="settingsBtn" class="chip">⚙ Settings</button></div>
+      <button id="installBtn" class="chip" hidden>⬇ Install app</button>
+      <div id="iosHint" class="hint" hidden>To install: tap <b>Share</b>, then <b>Add to Home Screen</b></div>
     </div>
     <div id="msg"></div>
     <div class="hint"><span>P1 WASD/ZQSD + Space</span> · <span>P2 Arrows + Enter</span> · <span>Gamepad</span> · <span>Touch</span></div>
@@ -192,8 +213,11 @@
 </div>
 <div id="settings" class="screen">
   <div class="menu-col">
-    <h2>Match settings</h2>
+    <h2>Settings</h2>
     <div id="setList" style="display:grid;gap:10px"></div>
+    <h3>Accessibility &amp; feedback</h3>
+    <div id="a11yList" style="display:grid;gap:10px"></div>
+    <button id="vibTest" class="alt chip">Test vibration</button>
     <div class="hint">Teams need 4 players (P1 + P3 vs P2 + P4). Online: your settings apply when you host.</div>
     <div class="row"><button id="setReset" class="alt">Reset to defaults</button><button id="setBack">Done</button></div>
   </div>
@@ -225,12 +249,35 @@
   <button id="pauseBtn" hidden aria-label="Pause">⏸</button>
   <button id="quit" aria-label="Quit">✕</button>
   <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><button id="again" class="btn-main">Play again</button><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
-  <div id="pause"><h2>Paused</h2><button id="resume" class="btn-main">Resume</button><button id="pauseQuit" class="alt">Quit to menu</button><small>P / Esc / gamepad Start</small></div>
+  <div id="pause"><h2>Paused</h2><button id="resume" class="btn-main">Resume</button><button id="pauseHelp" class="alt">How to play</button><button id="pauseQuit" class="alt">Quit to menu</button><small>P / Esc / gamepad Start</small></div>
   <div id="touch"><div id="pad"><div id="knob"></div></div><button id="bombBtn">💣</button></div>
 </div>
 <div id="reconn" class="overlay">Reconnecting…</div>
+<div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+  <div class="menu-col">
+    <h2 id="helpTitle">How to play</h2>
+    <ol class="steps">
+      <li><span class="pic">✥</span><span><b>Move</b> around the arena. Soft bricks can be blown up, grey walls cannot.</span></li>
+      <li><span class="pic">💣</span><span><b>Drop bombs</b>: they explode after 2.5 s in a cross. Trap your rivals, then get out of the way.</span></li>
+      <li><span class="pic">★</span><span><b>Grab power-ups</b> hidden in the bricks:</span></li>
+    </ol>
+    <ul id="helpItems" class="items"></ul>
+    <ol class="steps" start="4">
+      <li><span class="pic">☠</span><span><b>Last one standing wins.</b> After 90 s the arena closes in (sudden death).</span></li>
+    </ol>
+    <div class="label">Controls</div>
+    <ul class="keys">
+      <li><b>P1</b> WASD / ZQSD + Space</li>
+      <li><b>P2</b> Arrows + Enter</li>
+      <li><b>Gamepad</b> D-pad or stick, any button drops a bomb, Start pauses</li>
+      <li><b>Touch</b> left pad to move, 💣 to drop a bomb</li>
+      <li><b>Pause</b> P or Esc</li>
+    </ul>
+    <button id="helpDone">Got it</button>
+  </div>
+</div>
+<div id="toast" role="status" hidden>New version available <button id="toastReload">Reload</button><button id="toastClose" class="alt" aria-label="Dismiss">✕</button></div>
 <script type="module" src="/game/main.js"></script>
-<script type="module" src="/game/home.js"></script>
 <noscript><p style="position:fixed;inset:0;display:grid;place-items:center;color:#fff;background:#14141f;padding:24px;text-align:center">Kaboom Arena is a free browser game and needs JavaScript. Drop bombs, blast walls and outlast your rivals, solo, local or online.</p></noscript>
 </body>
 </html>

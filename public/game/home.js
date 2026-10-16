@@ -10,7 +10,7 @@ view.height = CH - TOP;
 const vctx = view.getContext("2d");
 const buf = Object.assign(document.createElement("canvas"), { width: CW, height: CH });
 const bctx = buf.getContext("2d");
-const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let still = false, raf = 0;
 
 const FRAME_MS = matchMedia("(pointer: coarse)").matches ? 125 : 83;
 let g, mem, acc = 0, last = performance.now(), restartAt = 0, drawnAt = 0;
@@ -22,6 +22,7 @@ function reset() {
 }
 
 function tick(now) {
+  raf = 0;
   if (menu.classList.contains("on") && !document.hidden && document.hasFocus()) {
     acc += Math.min(now - last, 100);
     while (acc >= 1000 / 60) {
@@ -49,8 +50,13 @@ function tick(now) {
     }
   }
   last = now;
-  if (!still) requestAnimationFrame(tick);
+  if (!still) raf = requestAnimationFrame(tick);
+}
+
+export function setStill(on) {
+  still = on;
+  if (!on && !raf) { last = performance.now(); raf = requestAnimationFrame(tick); }
 }
 
 reset();
-requestAnimationFrame(tick);
+raf = requestAnimationFrame(tick);

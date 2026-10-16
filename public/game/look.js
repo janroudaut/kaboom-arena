@@ -43,8 +43,19 @@ for (const [key, t] of Object.entries(THEMES)) t.key = key;
 
 export const themeOf = (cfg) => (Object.hasOwn(THEMES, cfg?.theme) ? THEMES[cfg.theme] : THEMES.grass);
 
-export const TEAMS = [{ name: "Gold", col: "#ffd23c" }, { name: "Cyan", col: "#38d6e8" }];
-export const teamInfo = (t) => TEAMS[t] ?? TEAMS[0];
+// Colour-blind mode (Okabe-Ito based) is a flag set by main.js; both renderers read colours through palette()/teamInfo().
+export const view = { cb: false };
+const PALETTES = {
+  std: { suit: ["#f2f2f2", "#454556", "#e8453c", "#3c7be8"], dark: ["#b8b8c4", "#262633", "#a32a24", "#2452a8"] },
+  cb: { suit: ["#f0e442", "#0072b2", "#d55e00", "#56b4e9"], dark: ["#a89f1c", "#00486f", "#8f3e00", "#2e7fae"] },
+};
+export const palette = () => (view.cb ? PALETTES.cb : PALETTES.std);
+
+const TEAMS_BY = {
+  std: [{ name: "Gold", col: "#ffd23c" }, { name: "Cyan", col: "#38d6e8" }],
+  cb: [{ name: "Pink", col: "#cc79a7" }, { name: "Green", col: "#009e73" }],
+};
+export const teamInfo = (t) => { const l = view.cb ? TEAMS_BY.cb : TEAMS_BY.std; return l[t] ?? l[0]; };
 export const teamsOf = (s) => (Array.isArray(s?.cfg?.teams) ? s.cfg.teams : null);
 
 const CURSE_NAMES = { slow: "SLOW", fast: "HYPER", reverse: "REVERSED", nobomb: "NO BOMBS", auto: "BOMB SPAM" };
