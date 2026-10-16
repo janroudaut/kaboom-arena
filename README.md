@@ -9,6 +9,8 @@ Works on desktop, phone and tablet, installable as a PWA, solo mode works offlin
 
 > A fan-made tribute to Konami's Bomberman. Not affiliated with or endorsed by Konami.
 > All graphics are drawn in code, no original assets are used.
+>
+> The "DLSS" / "RTX" graphics mode is a joke about GPU marketing. It uses text only, no logos, and is not affiliated with or endorsed by NVIDIA.
 
 <p align="center">
   <img src="docs/screenshots/menu.jpg" width="49%" alt="Home screen with a live bot match behind the menu">
