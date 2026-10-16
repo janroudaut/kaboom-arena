@@ -264,6 +264,17 @@
   .logo { font-family: var(--pixel); font-style: normal; font-weight: 400; }
   .logo .k { font-size: clamp(1.8rem, min(11vw, 9vh), 3.2rem); letter-spacing: 0; }
   .logo .a { font-size: clamp(.8rem, 3.6vw, 1.15rem); letter-spacing: .45em; margin-right: -.45em; margin-top: .5em; }
+
+  /* Dialogue screens never scroll as a page: the portrait shrinks, the dialogue box scrolls on its own, the buttons stay visible. */
+  #story:not([data-v="sel"]) { overflow: hidden; justify-content: center; }
+  #story:not([data-v="sel"]) > * { flex: 0 0 auto; }
+  #story:not([data-v="sel"]) .one { width: auto; }
+  #story:not([data-v="sel"]) .one img { width: min(60vw, 240px, 30dvh); }
+  #story:not([data-v="sel"]) .vs figure { flex: 0 1 min(220px, 26dvh); }
+  #story:not([data-v="sel"]) > .dlg { flex: 0 1 auto; min-height: 7em; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--yellow) #16133b; }
+  #story:not([data-v="sel"]) > .dlg::-webkit-scrollbar { width: 8px; }
+  #story:not([data-v="sel"]) > .dlg::-webkit-scrollbar-thumb { background: var(--yellow); }
+  #story:not([data-v="sel"]) > .dlg::-webkit-scrollbar-track { background: #16133b; }
 </style>
 </head>
 <body>

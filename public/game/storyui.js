@@ -33,6 +33,15 @@ export function createStoryUI({ root, show, fight, home, reduced }) {
     return `<div class="dlg px">${rows.map((r) => `<p>${r.id ? `<b class="who" style="--c:${BY_ID[r.id].color}">${esc(BY_ID[r.id].name)}</b>` : ""}<span class="t"></span><span class="t h"></span></p>`).join("")}</div>`;
   };
 
+  // Keep the caret visible when the dialogue box scrolls on its own.
+  function follow() {
+    const d = root.querySelector(".dlg");
+    if (!d || d.scrollHeight <= d.clientHeight) return;
+    let last = null;
+    for (const el of root.querySelectorAll(".t:not(.h)")) if (el.textContent) last = el;
+    last?.scrollIntoView({ block: "nearest" });
+  }
+
   function typeOut() {
     const a = root.querySelectorAll(".t:not(.h)"), b = root.querySelectorAll(".t.h"), ts = texts;
     const total = ts.reduce((n, t) => n + t.length, 0);
@@ -40,8 +49,8 @@ export function createStoryUI({ root, show, fight, home, reduced }) {
     if (reduced()) return paint(total);
     let n = 0;
     paint(0);
-    typing = () => { paint(total); endType(); };
-    tid = setInterval(() => { paint(++n); if (n >= total) endType(); }, 28);
+    typing = () => { paint(total); follow(); endType(); };
+    tid = setInterval(() => { paint(++n); follow(); if (n >= total) endType(); }, 28);
   }
 
   const btn = (act, label, o = "") => `<button class="arc ${o.includes("alt") ? "alt" : ""}" data-act="${act}" ${o.includes("pri") ? "data-pri" : ""} ${o.includes("adv") ? "data-adv" : ""}>${label}</button>`;
