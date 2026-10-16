@@ -23,6 +23,7 @@ export const FIELDS = [
   { key: "announcer", label: "Announcer banners and taunts", opts: ON_OFF, feel: true },
   { key: "slowmo", label: "Slow-mo and hit-stop", opts: ON_OFF, feel: true },
   { key: "recap", label: "Round recap with awards", opts: ON_OFF, feel: true },
+  { key: "emotes", label: "Show other players' emotes (online)", opts: ON_OFF, feel: true },
   { key: "sfx", label: "Sound effects", opts: ON_OFF, sound: true },
   { key: "music", label: "Music", opts: [["auto", "Auto"], ["arcade", "Arcade"], ["epic", "Epic"], ["chill", "Chill"], ["synth", "Synthwave"], ["silence", "Silence"]], sound: true },
   { key: "volume", label: "Volume", opts: [["low", "Low"], ["normal", "Normal"], ["high", "High"]], sound: true },
@@ -35,7 +36,7 @@ export const FIELDS = [
   { key: "offline", label: "Keep the whole game offline", opts: ON_OFF.slice().reverse(), store: true },
 ];
 
-export const DEFAULTS = { bot: "normal", mode: "classic", tiles: "off", chaos: false, bombs: false, abilities: false, rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal", offline: false, sfx: true, music: "silence", volume: "normal", voice: false, announcer: true, slowmo: true, recap: true };
+export const DEFAULTS = { bot: "normal", mode: "classic", tiles: "off", chaos: false, bombs: false, abilities: false, rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal", offline: false, sfx: true, music: "silence", volume: "normal", voice: false, announcer: true, slowmo: true, recap: true, emotes: true };
 
 export const reduced = (set, system) => (set.reduce === "auto" ? !!system : set.reduce);
 

@@ -12,6 +12,7 @@ import { esc } from "./lobby.js";
 import { createObserver } from "./fx.js";
 import { loadPanel, savePanel, sanitizePanel, PANEL_DEFAULTS, bloomStrength, fpsLine, statLine, toastText, halluVariant, createCadence, createGovernor, flareDots, FLARE_N, DISCLAIMER, CATCHPHRASE } from "./dlss6.js";
 import { placeBubble } from "./director.js";
+import { EMOTES, emoteLook } from "./emote.js";
 import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText, mineSeen, abilityInfo, heldBombs } from "./look.js";
 
 const MOBILE = matchMedia("(pointer: coarse)").matches;
@@ -703,9 +704,10 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
 
   const hud = document.createElement("div");
   hud.id = "hud3";
-  hud.innerHTML = '<div class="h3-scores"></div><div class="h3-info"></div><div class="h3-frenzy"></div><div class="h3-left"><button class="h3-badge"></button><button class="h3-gear" hidden aria-label="DLSS 6 control panel (G)" title="DLSS 6 control panel (G)">⚙ RTX settings</button></div><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div><div class="h3-call"></div><div class="h3-bub"></div><div class="h3-bub"></div>';
+  hud.innerHTML = '<div class="h3-scores"></div><div class="h3-info"></div><div class="h3-frenzy"></div><div class="h3-left"><button class="h3-badge"></button><button class="h3-gear" hidden aria-label="DLSS 6 control panel (G)" title="DLSS 6 control panel (G)">⚙ RTX settings</button></div><div class="h3-toast"></div><div class="h3-banner"><span></span><small class="h3-stat"></small></div><div class="h3-spec">You\'re out – spectating</div><div class="h3-call"></div><div class="h3-bub"></div><div class="h3-bub"></div><div class="h3-emo"></div><div class="h3-emo"></div><div class="h3-emo"></div><div class="h3-emo"></div>';
   hudParent.appendChild(hud);
-  const [elScores, elInfo, elFrenzy, elLeft, elToast, elBanner, elSpec, elCall, ...elBub] = hud.children;
+  const [elScores, elInfo, elFrenzy, elLeft, elToast, elBanner, elSpec, elCall, ...elExtra] = hud.children;
+  const elBub = elExtra.slice(0, 2), elEmo = elExtra.slice(2);
   const [elBadge, elGear] = elLeft.children;
   const [elBannerText, elStat] = elBanner.children;
   const elDock = Object.assign(document.createElement("div"), { className: "h3-dock" });
@@ -1112,6 +1114,29 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
     }
   }
 
+  const emoLook = { k: 1, a: 1 };
+  function updateEmotes(g) {
+    for (let i = 0; i < 4; i++) {
+      const el = elEmo[i], em = g.emo?.[i], p = em && g.s.players[i];
+      if (!p || p.dormant) {
+        if (el._e) { el._e = null; el.style.display = "none"; }
+        continue;
+      }
+      if (el._e !== em) {
+        el._e = em;
+        el.textContent = EMOTES[em.e];
+        el.style.display = "block";
+        el._w = el.offsetWidth; el._h = el.offsetHeight;
+      }
+      emoteLook(emoLook, em, g.clock, still);
+      const a = emoLook.a.toFixed(1);
+      if (el._a !== a) { el._a = a; el.style.opacity = a; }
+      tmpV.set(p.x / T, view.cb ? 2.4 : 2.0, p.y / T).project(camera);
+      const x = Math.min(Math.max((tmpV.x * 0.5 + 0.5) * w - el._w / 2, 4), w - el._w - 4), y = Math.max((-tmpV.y * 0.5 + 0.5) * h - el._h - 6, 56);
+      el.style.transform = `translate(${x | 0}px,${y | 0}px)`;
+    }
+  }
+
   function draw(g) {
     const now = performance.now();
     const rdt = Math.min((now - lastNow) / 1000, 0.1), dt = rdt * (g.ts ?? 1);
@@ -1409,6 +1434,7 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
     updateHud(g, now);
     updateCall(g);
     updateBubbles(g);
+    updateEmotes(g);
   }
 
   elBadge.addEventListener("click", () => setDlss(!dlss));

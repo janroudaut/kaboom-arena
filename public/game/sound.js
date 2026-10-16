@@ -7,7 +7,7 @@ export const SFX_INFO = {
   bomb: [5, 40], fuse: [1, 60], boom: [8, 60], chain: [7, 300], wall: [3, 50], die: [9, 100], pop: [4, 60], kick: [5, 120], shieldend: [3, 300],
   pick0: [6, 60], pick1: [6, 60], pick2: [6, 60], pick3: [6, 60], pick4: [6, 60], pick5: [6, 60], pick6: [6, 60], pick7: [6, 60],
   start: [9, 0], win: [9, 0], lose: [9, 0], draw: [9, 0], matchwin: [9, 0], matchlose: [9, 0], sudden: [8, 3000],
-  click: [4, 40], nav: [3, 40], blip: [3, 20], test: [9, 0], choice: [4, 80], secret: [9, 0],
+  click: [4, 40], emote: [3, 250], nav: [3, 40], blip: [3, 20], test: [9, 0], choice: [4, 80], secret: [9, 0],
   tparm: [2, 400], tp: [6, 150], ice: [2, 500], spikeup: [3, 150], spikedn: [1, 150],
   ev0: [7, 0], ev1: [7, 0], ev2: [7, 0], ev3: [7, 0], ev4: [7, 0], quake: [7, 0], swap: [6, 0], frenzy: [6, 0], drop: [4, 0],
   hillpt: [4, 200], hillmove: [5, 0], pass: [6, 150], potbeep: [5, 0], wave: [7, 0],

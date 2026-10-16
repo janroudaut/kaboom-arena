@@ -2,6 +2,7 @@
 // Low-res ImageData (reused), CSS pixelated upscale, no per-frame allocation in the 3D pass, nothing runs unless draw() is called.
 import { W as GW, H as GH, T, SUDDEN, B_MINE, FLY_TICKS } from "./sim.js";
 import { placeBubble } from "./director.js";
+import { EMOTES, emoteLook } from "./emote.js";
 import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, mineSeen, abilityInfo, heldBombs } from "./look.js";
 import { ICONS } from "./render.js";
 import { cast, newRay, OX, OY, DX, DY, T as RT, SIDE, TILE, U, texU, planeOf, project, angDiff } from "./raycast.js";
@@ -423,6 +424,33 @@ export function createRendererFps(canvas) {
     }
   }
 
+  const emoLook = { k: 1, a: 1 };
+  function emotes(g, hz) {
+    c.textAlign = "center"; c.textBaseline = "middle";
+    for (let i = 0; i < 4; i++) {
+      const em = g.emo[i], p = g.s.players[i];
+      if (!em || !p || p.dormant) continue;
+      let ax = cw / 2, ay = vh - 22;
+      if (i !== me.id) {
+        project(camPX, camPY, dirX, dirY, pl.x, pl.y, p.x / T, p.y / T, pr);
+        if (pr[1] <= 0.3) continue;
+        ax = Math.min(Math.max((cw / 2) * (1 + pr[0] / pr[1]), 14), cw - 14);
+        ay = Math.max(hz + (0.5 - 0.95) * (K / pr[1]) - 12, 20);
+      }
+      emoteLook(emoLook, em, g.clock, view.still);
+      c.save();
+      c.globalAlpha = emoLook.a;
+      c.translate(Math.round(ax), Math.round(ay)); c.scale(emoLook.k, emoLook.k);
+      c.fillStyle = "#000"; c.fillRect(-12, -9, 24, 18);
+      c.fillStyle = "#fff"; c.fillRect(-11, -8, 22, 16);
+      c.fillStyle = "#14141f";
+      c.font = em.e === 7 ? PIX : "13px sans-serif";
+      c.fillText(EMOTES[em.e], 0, 1);
+      c.restore();
+    }
+    c.textBaseline = "alphabetic";
+  }
+
   function track(g, p, s, clock) {
     if (s.tick < me.tick || me.id !== (g.me >= 0 ? g.me : 0)) { me.deadAt = -1e9; me.alive = true; }
     me.tick = s.tick;
@@ -486,6 +514,7 @@ export function createRendererFps(canvas) {
       banner(g);
       if (g.call) callout(g);
       if (g.bub && (g.bub[0] || g.bub[1])) bubbles(g, hz);
+      if (g.emo) emotes(g, hz);
       ms += (performance.now() - now - ms) * 0.05;
     } catch (err) {
       if (String(err) !== errMsg) console.error((errMsg = String(err)), err);

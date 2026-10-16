@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs determinism.test.mjs specials.test.mjs replay.test.mjs daily.test.mjs sharecard.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs determinism.test.mjs specials.test.mjs replay.test.mjs daily.test.mjs sharecard.test.mjs emote.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -101,6 +101,13 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - The relay (`RoomChannel`) enforces roles (host = first subscriber), message-type allow-lists, size and rate limits, and connection caps: any new network message must go through those allow-lists. The UI must never put network-received data into `innerHTML` without coercing or escaping it.
 - Every relay guard logs one line `kaboom refus=throttle|probe regle=... ip=... chemin=/cable` (`Connection.refuse`), a format parsed by an external log monitor. New refusals go through it; do not change the format casually.
 - Known limits: the host can cheat and a host in a background tab freezes the game; a host drop ends the match.
+
+### Quick play, spectators, emotes (relay v2)
+- `RoomRegistry` (plain Ruby, tested by `ruby -Itest test/room_registry_test.rb`; `bundle exec ruby -Itest test/connection_limits_test.rb`) holds rooms, caps and the public list; `RoomChannel::REGISTRY` replaced the old `ROOMS`/`LOCK`. Subscription params `{code, cid, tok, host, auto}`: `tok` (8-32 chars `[a-z0-9]`, per page load, never broadcast) proves ownership of a roster slot on reconnect; `auto` (guests) falls back to spectating when the room is full or started. The server assigns the role and sends `{t:"role", r:"p"|"s", host}` to that subscription only; `{t:"spec", n}` is server-only (host re-pushes lobby and a full-grid snapshot).
+- Allowed types: host `lobby snap start end full pong emote`; guest `join in ping emote`; spectator `ping emote`. Rates per second host 90, guest 40, spectator 6; size caps join 512, in 2048, ping/emote/spectator 256 bytes, host 32 KB. Caps: 4 players, 6 spectators per room, 200 rooms, 3 subscriptions per connection, 8 per IP and 300 total connections. 20 misses (unknown room, host probes) per IP per minute -> `join/ip`. Rooms idle 2 h are swept lazily; no timers.
+- Public list: `ListingChannel` `list` action (on demand only: Quick play, Public rooms, Refresh), up to 20 rows from a whitelisted summary of the host `lobby` message (`pub`, `sp` flags); private rooms are never listed; public status expires after 30 min. The client re-validates every row (`cleanRooms`) and renders with `textContent`.
+- Emotes: `{t:"emote", e:0..7}`, server accepts only a real Integer 0-7 and rebuilds the message; 2 s client cooldown, 1.5 s relay. Keys 1-8 (plus a button/wheel online), `emote.js`, setting "Emotes" (hides others' only). Spectators run as `mode "guest"` with `spec = true` and `me = -1`, are not recorded and take no lobby slot or rematch vote.
+- New `regle=` values (log format unchanged): `sub/conn`, `join/ip`, `join/tok`, `room/total`, `emote/arg`, `emote/rate`, `list/rate`. Per-IP limits use `request.remote_ip`: the reverse proxy must forward the real client IP.
 
 ### Netcode (`netcode.js`, tests in `netcode.test.mjs` with a host+guest harness simulating latency, jitter and loss)
 - The guest sends its inputs per tick, at most 30 msg/s (`{t:"in", n, d:[codes]}`, nothing when idle). The host replays them through `createInbox` (one input per sim tick; a missing tick repeats the held direction, idle after 12 ticks; `ack` = guest ticks consumed, returned in every snapshot).

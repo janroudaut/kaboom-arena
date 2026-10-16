@@ -117,6 +117,25 @@
   .overlay { position: absolute; inset: 0; z-index: 6; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0b0b12d9; text-align: center; padding: 16px; }
   .overlay.on { display: flex; }
   .overlay h2 { margin: 0 0 6px; font-size: 1.8rem; color: var(--yellow); overflow-wrap: anywhere; }
+  .hostopts { display: grid; gap: 6px; font-size: .8rem; }
+  .hostopts[hidden] { display: none; }
+  .hostopts label { display: flex; align-items: center; gap: 8px; }
+  .hostopts input { min-width: 0; width: auto; }
+  #roomList { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 46dvh; overflow-y: auto; }
+  #roomList li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #ffffff12; font-size: .75rem; line-height: 1.4; overflow-wrap: anywhere; }
+  #roomList li > span { min-width: 0; }
+  #roomList .chip { flex: none; }
+  #watch { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 4; padding: 3px 10px; border-radius: 99px; background: #0b0b12cc; border: 1px solid #fff4; font: 11px/1.4 monospace; pointer-events: none; white-space: nowrap; }
+  #watch.spec { color: var(--yellow); border-color: var(--yellow); }
+  #emoBtn { position: absolute; top: 6px; right: 98px; z-index: 4; min-width: 0; padding: 4px 8px; font-size: 1.1rem; background: #0008; }
+  #emoBtn.cool { opacity: .45; }
+  #emoWheel { position: absolute; top: 52px; right: 6px; z-index: 5; display: grid; grid-template-columns: repeat(4, 46px); gap: 4px; padding: 6px; border-radius: 12px; background: #0b0b12ee; border: 1px solid #fff3; }
+  #emoWheel[hidden] { display: none; }
+  #emoWheel button { min-width: 0; height: 44px; padding: 0; font-size: 1.3rem; background: #ffffff18; }
+  #emoWheel button small { font: 700 .55rem/1 monospace; opacity: .6; display: block; }
+  #emoFeed { position: absolute; bottom: 46px; left: 50%; transform: translateX(-50%); z-index: 4; font-size: 1.2rem; pointer-events: none; text-shadow: 0 1px 3px #000; }
+  body.spectating #touch { display: none !important; }
+  .h3-emo { display: none; position: absolute; left: 0; top: 0; padding: 3px 7px; font: 700 20px/1.2 system-ui, "Noto Color Emoji", sans-serif; color: #14141f; background: #fff; border-radius: 8px; box-shadow: 0 0 0 2px #000; pointer-events: none; }
   #reconn { position: fixed; z-index: 9; font-size: 1.4rem; font-weight: 700; }
   #ping { position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); font: 11px monospace; opacity: .6; pointer-events: none; z-index: 4; }
   @media (pointer: coarse) { #touch { display: block; } }
@@ -383,7 +402,8 @@
       <button id="local" class="alt">Local · 2–4 players</button>
       <div class="row chips"><button id="dailyBtn" class="chip">★ Daily</button><button id="replaysBtn" class="chip">▶ Replays</button></div>
       <div class="label">Online</div>
-      <button id="create" class="alt">Create a room</button>
+      <button id="quick" class="alt">Quick play</button>
+      <div class="row chips"><button id="create" class="chip">Create a room</button><button id="roomsBtn" class="chip">Public rooms</button></div>
       <div class="row"><input id="joinCode" maxlength="4" placeholder="CODE" size="6" autocomplete="off" aria-label="Room code"><button id="join" class="alt">Join</button></div>
       <div class="label">Graphics</div>
       <div id="gfx" class="seg" style="--n:4" role="radiogroup" aria-label="Graphics">
@@ -434,6 +454,10 @@
   </div>
   <ul id="lobbyList"></ul>
   <div id="lobbyInfo"></div>
+  <div id="hostOpts" class="hostopts" hidden>
+    <label><input type="checkbox" id="pubRoom"> Public room (listed in Quick play)</label>
+    <label><input type="checkbox" id="allowSpec" checked> Allow spectators</label>
+  </div>
   <button id="start">Start</button>
   <button id="lobbyBack" class="alt">Cancel</button>
 </div>
@@ -443,6 +467,15 @@
   <label><input type="checkbox" id="localBots" checked style="min-width:0"> Fill with bots</label>
   <button id="localStart">Start</button>
   <button id="localBack" class="alt">Back</button>
+</div>
+<div id="rooms" class="screen">
+  <div class="menu-col">
+    <h2>Public rooms</h2>
+    <ul id="roomList"></ul>
+    <div class="hint" id="roomsNote"></div>
+    <div class="row"><button id="roomsRefresh" class="alt">Refresh</button><button id="roomsHost" class="alt">Host a public room</button></div>
+    <button id="roomsBack">Back</button>
+  </div>
 </div>
 <div id="daily" class="screen">
   <div class="menu-col">
@@ -469,6 +502,10 @@
   <canvas id="c3" hidden></canvas>
   <canvas id="cf" hidden></canvas>
   <div id="ping"></div>
+  <div id="watch" role="status" hidden></div>
+  <div id="emoFeed" role="status"></div>
+  <button id="emoBtn" hidden aria-label="Emotes (keys 1-8)" aria-expanded="false">😀</button>
+  <div id="emoWheel" hidden></div>
   <button id="pauseBtn" hidden aria-label="Pause">⏸</button>
   <button id="quit" aria-label="Quit">✕</button>
   <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><div id="rematchRecap" class="recap"></div><div id="rmDaily" class="hint"></div><button id="again" class="btn-main">Play again</button><div class="row" id="rmShare"><button id="rmWatch" class="alt">Watch replay</button><button id="rmLink" class="alt">Share replay</button><button id="rmCard" class="alt">Share card</button></div><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
@@ -520,6 +557,12 @@
       <li><b>Hill</b> stand alone in the 3x3 zone to score: 30 points wins</li>
       <li><b>Potato</b> the holder explodes when the fuse ends: touch someone to pass it</li>
       <li><b>Survival</b> enemy waves with red rings: last as long as you can</li>
+    </ul>
+    <div class="label">Online</div>
+    <ul class="keys">
+      <li><b>Quick play</b> joins a public room, or lets you host one; any room can be made public from its lobby</li>
+      <li><b>Emotes</b> keys 1-8 or the face button: shown above your fighter for 2 s (every 2 s at most); Settings can hide other players' emotes</li>
+      <li><b>Spectators</b> a full room or a running match can be watched; the host can switch it off</li>
     </ul>
     <div class="label">Replays and daily challenge</div>
     <ul class="keys">

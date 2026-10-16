@@ -1,7 +1,7 @@
-const CACHE = "kaboom-v30";
+const CACHE = "kaboom-v31";
 const FILES = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png",
-  "/game/main.js", "/game/nav.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js", "/game/look.js", "/game/settings.js", "/game/haptics.js", "/game/ux.js", "/game/campaign.js", "/game/story.js", "/game/storyui.js", "/game/storyart.js", "/game/director.js", "/game/sound.js", "/game/music.js", "/game/audio.js", "/game/replay.js", "/game/replayui.js", "/game/daily.js", "/game/dailyui.js", "/game/sharecard.js",
+  "/game/main.js", "/game/nav.js", "/game/home.js", "/game/sim.js", "/game/ai.js", "/game/render.js", "/game/input.js", "/game/net.js", "/game/netcode.js", "/game/lobby.js", "/game/emote.js", "/game/look.js", "/game/settings.js", "/game/haptics.js", "/game/ux.js", "/game/campaign.js", "/game/story.js", "/game/storyui.js", "/game/storyart.js", "/game/director.js", "/game/sound.js", "/game/music.js", "/game/audio.js", "/game/replay.js", "/game/replayui.js", "/game/daily.js", "/game/dailyui.js", "/game/sharecard.js",
   "/game/vendor/qrcode.mjs", "/game/vendor/press-start-2p.woff2",
   ...["ignatius", "dynamita", "baron", "mama", "dolores", "tony", "fizzle", "kapow", "gunpowder"].map((id) => `/portraits/${id}.webp`),
   "/game/vendor/actioncable.esm.js", "/game/render3d.js", "/game/dlss6.js", "/game/dlss6ui.js", "/game/fx.js", "/game/raycast.js", "/game/fpsinput.js", "/game/fpstex.js", "/game/renderfps.js", "/game/vendor/three.module.min.js",

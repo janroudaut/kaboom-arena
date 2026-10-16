@@ -259,3 +259,19 @@ test("snapshots: floor, tiles, events, hill, potato and survival survive the wir
   bad.fl = "z".repeat(10);
   assert.equal(unpackSnap(bad).floor, undefined);
 });
+
+test("spectator net (me = -1): interpolates the host state, never predicts or sends inputs", () => {
+  const s = newGame(2, 7), g = createGuestNet(-1);
+  let last = null, lastCfg;
+  for (let k = 0; k < 8; k++) {
+    s.players[0].x += 3;
+    s.tick += 2;
+    const u = unpackSnap(wire(packSnap(s, k === 0)), last, lastCfg);
+    last = u.grid; lastCfg = u.cfg;
+    g.onSnap(u, undefined, k * 33);
+  }
+  assert.equal(g.take(), null);
+  const f = g.frame(8 * 33);
+  assert.ok(f.players[0].x > s.players[0].x - 30 && f.players[0].x <= s.players[0].x);
+  assert.equal(g.err, 0);
+});

@@ -1,5 +1,6 @@
 import { W, H, T, SUDDEN, ICE, CONV, SPIKE, TELE, POTATO_TICKS, HILL_GOAL, B_CLUSTER, B_MINE, B_ICE, B_MINI, FLY_TICKS, MINE_DELAY } from "./sim.js";
 import { placeBubble } from "./director.js";
+import { EMOTES, emoteLook } from "./emote.js";
 import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText, BOMB_INFO, ICE_FLAME, mineSeen, abilityInfo, heldBombs } from "./look.js";
 
 export const CW = W * T, CH = H * T + 16;
@@ -605,6 +606,28 @@ function bubbles(c, g) {
   }
 }
 
+const look = { k: 1, a: 1 };
+
+function emotes(c, g) {
+  c.textAlign = "center"; c.textBaseline = "middle";
+  for (let i = 0; i < 4; i++) {
+    const em = g.emo[i], p = g.s.players[i];
+    if (!em || !p || p.dormant) continue;
+    emoteLook(look, em, g.clock, view.still);
+    const x = Math.min(Math.max(Math.round(p.x), 13), CW - 13), y = Math.max(Math.round(p.y) + TOP - 20 - (view.cb ? 9 : 0), 11);
+    c.save();
+    c.globalAlpha = look.a;
+    c.translate(x, y); c.scale(look.k, look.k);
+    c.fillStyle = "#000"; c.fillRect(-12, -9, 24, 18); c.fillRect(-1, 9, 3, 3);
+    c.fillStyle = "#fff"; c.fillRect(-11, -8, 22, 16); c.fillRect(0, 9, 1, 2);
+    c.fillStyle = "#14141f";
+    c.font = em.e === 7 ? PIX : "13px sans-serif";
+    c.fillText(EMOTES[em.e], 0, 1);
+    c.restore();
+  }
+  c.textBaseline = "alphabetic";
+}
+
 export function draw(c, g) {
   const s = g.s, th = themeOf(s.cfg), sp = sprites(th), tm = teamsOf(s), fl = s.floor, nh = humansOf(s);
   c.fillStyle = "#17171f";
@@ -660,4 +683,5 @@ export function draw(c, g) {
   }
   if (g.call) callout(c, g);
   if (g.bub && (g.bub[0] || g.bub[1])) bubbles(c, g);
+  if (g.emo) emotes(c, g);
 }

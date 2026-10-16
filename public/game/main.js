@@ -2,8 +2,9 @@ import { newGame, step, W, T, ABILITIES } from "./sim.js";
 import { think } from "./ai.js";
 import { draw, CW, CH } from "./render.js";
 import { createInput, merge, sources, clearBombs, labelOf, pads } from "./input.js";
-import { joinRoom, newCode, cid } from "./net.js";
-import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
+import { joinRoom, newCode, cid, listRooms } from "./net.js";
+import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release, cleanRooms, quickPick } from "./lobby.js";
+import { EMOTES, createEmotes, validEmote } from "./emote.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
 import { view, setSuits, palette, humansOf, MODE_INFO, EVENT_INFO } from "./look.js";
 import { FIELDS, DEFAULTS, load as loadSettings, save as saveSettings, sanitize, roundOpts, reduced } from "./settings.js";
@@ -32,6 +33,8 @@ canvas.height = CH;
 const SNAP_EVERY = 2, SEND_EVERY = 2, GRID_EVERY = 60, THINK_EVERY = 6;
 let mode = null, game = null, room = null, slots = [], inboxes = {}, botMem = {};
 let frame = 0, lastSnap = 0, joinTimer = 0, humans = [];
+let spec = false, hostCid = "", pub = false, allowSpec = true, specN = 0, tries = [];
+const emo = createEmotes();
 let names = [], pnames = [], joined = false, lostAt = 0, subOk = false, resub = false, rmShown = false;
 const RECONNECT_MS = 30000;
 const PNUM = [1, 2, 3, 4].map((i) => `P${i}`);
@@ -163,7 +166,7 @@ function goBack(kind) {
     if (!offline) return nav.open("screen");
     if (!paused) { setPause(true); return nav.open("screen"); }
   }
-  if (cur === "settings" || cur === "daily" || cur === "replays") return show("menu");
+  if (cur === "settings" || cur === "daily" || cur === "replays" || cur === "rooms") return show("menu");
   if (mode === "story" || cur === "story") return leave();
   if (mode === "host") return endMatch();
   toMenu();
@@ -199,6 +202,14 @@ function toMenu(msg = "") {
   hostRules = DEFAULTS;
   names = pnames = [];
   joined = subOk = resub = false;
+  spec = pub = false;
+  allowSpec = true;
+  hostCid = "";
+  specN = 0;
+  tries = [];
+  emo.reset();
+  document.body.classList.remove("spectating");
+  syncWatch();
   lostAt = 0;
   $("reconn").classList.remove("on");
   syncRematch();
@@ -231,6 +242,34 @@ const input = createInput(
 );
 
 let paused = false, dirty = true;
+
+let emoOn = false;
+function syncEmoUi() {
+  const on = (mode === "host" || mode === "guest") && !!game && cur === "game";
+  if (on === emoOn) return;
+  emoOn = on;
+  $("emoBtn").hidden = !on;
+  if (!on) closeWheel();
+}
+function closeWheel() {
+  $("emoWheel").hidden = true;
+  $("emoBtn").setAttribute("aria-expanded", "false");
+}
+EMOTES.forEach((t, i) => {
+  const b = Object.assign(document.createElement("button"), { textContent: t });
+  b.setAttribute("aria-label", `Emote ${i + 1}`);
+  b.onclick = () => { sendEmote(i); closeWheel(); };
+  $("emoWheel").append(b);
+});
+$("emoBtn").onclick = () => {
+  const open = $("emoWheel").hidden;
+  $("emoWheel").hidden = !open;
+  $("emoBtn").setAttribute("aria-expanded", open);
+};
+addEventListener("keydown", (e) => {
+  const n = /^Digit([1-8])$/.exec(e.code);
+  if (n && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && e.target.tagName !== "INPUT") sendEmote(+n[1] - 1);
+});
 let rec = null, rp = null, rpSpeed = 1, rpBack = "menu", rpKeep = null;
 
 function setPause(on) {
@@ -409,21 +448,81 @@ function sendSnap() {
   room.send({ t: "snap", g: { s: packSnap(s, withGrid), a, scores, banner, r: !!game.rematch, w: settings.rounds } });
 }
 
-const pushLobby = () => room.send({ t: "lobby", slots, names, rules: { mode: settings.mode, tiles: settings.tiles, chaos: settings.chaos, bombs: settings.bombs, abilities: settings.abilities } });
+const pushLobby = () => room.send({ t: "lobby", slots, names, pub: pub ? 1 : 0, sp: allowSpec ? 1 : 0, rules: { mode: settings.mode, tiles: settings.tiles, chaos: settings.chaos, bombs: settings.bombs, abilities: settings.abilities } });
 
 function renderLobby() {
   const list = displayNames(slots.length, slots.map(Boolean), names);
   $("lobbyList").replaceChildren(...list.map((n) => Object.assign(document.createElement("li"), { textContent: n })));
-  if (mode === "host") $("lobbyInfo").textContent = `${slots.length} player(s) – ${settings.mode === "survival" ? "humans vs waves, no bots" : "free slots will be bots"} · ${rulesText(settings)}`;
+  if (mode === "host") $("lobbyInfo").textContent = `${slots.length} player(s)${pub ? " · public" : ""}${specN ? ` · ${specN} watching` : ""} – ${settings.mode === "survival" ? "humans vs waves, no bots" : "free slots will be bots"} · ${rulesText(settings)}`;
+}
+
+const sendJoin = () => !spec && room?.send({ t: "join", name: myName() });
+let feedTimer = 0;
+
+function syncWatch() {
+  const text = spec ? `Spectating${specN > 1 ? ` · ${specN} watching` : ""}` : specN ? `👁 ${specN} watching` : "";
+  $("watch").textContent = text;
+  $("watch").hidden = !text;
+  $("watch").classList.toggle("spec", spec);
+}
+
+function onEmote(m) {
+  if (!game || (mode !== "host" && mode !== "guest") || m.from === cid || typeof m.from !== "string" || !validEmote(m.e) || !settings.emotes) return;
+  const pid = slots.indexOf(m.from);
+  if (pid >= 0) emo.show(pid, m.e, clock, false);
+  else feed(m.e);
+  snd.ui("emote", 0.9 + m.e * 0.04);
+}
+
+function feed(e) {
+  $("emoFeed").textContent = `👁 ${EMOTES[e]}`;
+  clearTimeout(feedTimer);
+  feedTimer = setTimeout(() => ($("emoFeed").textContent = ""), 2000);
+}
+
+function sendEmote(i) {
+  if (!room || !game || (mode !== "host" && mode !== "guest") || !validEmote(i) || !emo.ready(clock)) return;
+  emo.sent(clock);
+  room.send({ t: "emote", e: i });
+  const me = mode === "host" ? 0 : game.me;
+  if (me >= 0) emo.show(me, i, clock, true);
+  else feed(i);
+  snd.ui("emote", 0.9 + i * 0.04);
+  $("emoBtn").classList.add("cool");
+  setTimeout(() => $("emoBtn").classList.remove("cool"), 2000);
 }
 
 function onMsg(m) {
+  if (m.t === "emote") return onEmote(m);
+  if (m.t === "spec") {
+    if (!Number.isInteger(m.n)) return;
+    const more = m.n > specN;
+    specN = Math.min(Math.max(m.n, 0), 6);
+    syncWatch();
+    if (mode === "host") {
+      renderLobby();
+      if (more) { sentGrid = ""; pushLobby(); }
+    }
+    return;
+  }
+  if (m.t === "role" && mode === "guest") {
+    spec = m.r === "s";
+    hostCid = typeof m.host === "string" ? m.host.slice(0, 32) : "";
+    document.body.classList.toggle("spectating", spec);
+    syncWatch();
+    if (!spec) return sendJoin();
+    joined = true;
+    clearTimeout(joinTimer);
+    $("lobbyInfo").textContent = "Spectating: waiting for the host…";
+    show("lobby");
+    return;
+  }
   if (m.t === "left") {
     if (mode === "host") {
       const pid = release(slots, names, m.from, !!game);
       if (pid > 0) delete inboxes[pid];
       if (pid > 0 && !game) { pushLobby(); renderLobby(); }
-    } else if (mode === "guest" && m.from === slots[0]) toMenu("The host left the game.");
+    } else if (mode === "guest" && m.from === (hostCid || slots[0])) toMenu("The host left the game.");
     return;
   }
   if (mode === "host") {
@@ -444,7 +543,7 @@ function onMsg(m) {
   if (mode !== "guest") return;
   if (m.t === "full" && m.to === cid) toMenu("Room full or game in progress.");
   else if (m.t === "lobby") {
-    if (!Array.isArray(m.slots) || !m.slots.includes(cid)) return;
+    if (!Array.isArray(m.slots) || (!spec && !m.slots.includes(cid))) return;
     clearTimeout(joinTimer);
     joined = true;
     clearLost();
@@ -453,7 +552,7 @@ function onMsg(m) {
     pnames = displayNames(4, [0, 1, 2, 3].map((i) => !!slots[i]), names, settings.cb ? PNUM : undefined);
     hostRules = sanitize(m.rules);
     renderLobby();
-    $("lobbyInfo").textContent = `Waiting for the host to start… · ${rulesText(hostRules)}`;
+    $("lobbyInfo").textContent = `${spec ? "Spectating: waiting" : "Waiting"} for the host to start… · ${rulesText(hostRules)}`;
     if (!game) show("lobby");
   } else if (m.t === "pong" && m.to === cid && typeof m.ts === "number") {
     const now = performance.now() - m.ts;
@@ -461,15 +560,15 @@ function onMsg(m) {
     $("ping").textContent = `${Math.round(rtt)} ms`;
   } else if (m.t === "snap") {
     const s = unpackSnap(m.g?.s, lastGrid, lastCfg, lastFloor);
-    const me = slots.indexOf(cid);
-    if (!s || me < 0) return;
+    const me = spec ? -1 : slots.indexOf(cid);
+    if (!s || (!spec && me < 0) || (spec && !pnames.length)) return;
     lastGrid = s.grid;
     lastCfg = s.cfg;
     lastFloor = s.floor;
     lastSnap = performance.now();
     clearLost();
     gnet ||= createGuestNet(me);
-    gnet.onSnap(s, m.g.a?.[me], lastSnap);
+    gnet.onSnap(s, spec ? undefined : m.g.a?.[me], lastSnap);
     if (!game) show("game");
     game = { s, n: humansOf(s), scores: m.g.scores, banner: m.g.banner, me, names: pnames, rematch: !!m.g.r, win: Math.min(3, m.g.w | 0) };
   } else if (m.t === "end") toMenu();
@@ -518,21 +617,30 @@ function showHostLobby() {
   show("lobby");
 }
 
-function openRoom(code, host) {
+function openRoom(code, host, isPub = false) {
+  clearTimeout(joinTimer);
   mode = host ? "host" : "guest";
+  spec = false;
+  hostCid = "";
+  specN = 0;
+  pub = isPub;
+  allowSpec = true;
+  document.body.classList.remove("spectating");
+  syncWatch();
+  $("pubRoom").checked = pub;
+  $("allowSpec").checked = true;
+  $("hostOpts").hidden = !host;
   slots = host ? [cid] : [];
   names = host ? [myName()] : [];
   joined = false;
   $("code").textContent = code;
   $("start").style.display = host ? "" : "none";
   $("invite").hidden = true;
-  const sendJoin = () => room.send({ t: "join", name: myName() });
   room = joinRoom(code, host, {
     onMsg,
     onConnected: () => {
       subOk = true;
-      if (host) return showHostLobby();
-      sendJoin();
+      if (host) { showHostLobby(); return pushLobby(); }
       if (!joined) joinTimer = setTimeout(() => toMenu("Room not found."), 3000);
       lastSnap = performance.now();
       clearInterval(pingTimer);
@@ -550,7 +658,12 @@ function openRoom(code, host) {
     onRejected: () => {
       subOk = false;
       if (mode === "guest" && joined) { resub = true; lose(); }
-      else toMenu(host ? "Could not create the room, try again." : "Room not found or full.");
+      else if (!host && tries.length) {
+        const next = tries.shift(), keep = tries;
+        room?.leave();
+        openRoom(next, false);
+        tries = keep;
+      } else toMenu(host ? "Could not create the room, try again." : "Room not found or full.");
     },
   });
   renderLobby();
@@ -571,6 +684,59 @@ $("localStart").onclick = () => {
 };
 $("localBack").onclick = () => toMenu();
 $("create").onclick = () => openRoom(newCode(), true);
+$("pubRoom").onchange = () => { pub = $("pubRoom").checked; renderLobby(); room && pushLobby(); };
+$("allowSpec").onchange = () => { allowSpec = $("allowSpec").checked; room && pushLobby(); };
+
+let listing = false;
+async function fetchRooms(note) {
+  if (listing) return null;
+  listing = true;
+  note.textContent = "Looking for public rooms…";
+  try {
+    const list = cleanRooms(await listRooms());
+    note.textContent = "";
+    return list;
+  } catch {
+    note.textContent = "Could not reach the server.";
+    return null;
+  } finally {
+    listing = false;
+  }
+}
+
+function showRooms(list, note = "") {
+  $("roomsNote").textContent = note || (list.length ? "" : "No public room is open right now.");
+  $("roomList").replaceChildren(...list.map((r) => {
+    const li = document.createElement("li"), txt = document.createElement("span"), b = document.createElement("button");
+    const watch = r.live || r.open === 0;
+    txt.textContent = `${r.host || "Host"} · ${rulesText(r)} · ${r.live ? "playing" : `${4 - r.open}/4 players`}${r.specs ? ` · ${r.specs} watching` : ""}`;
+    b.className = "chip";
+    b.textContent = watch ? "Watch" : "Join";
+    b.onclick = () => { tries = []; openRoom(r.code, false); };
+    li.append(txt, b);
+    return li;
+  }));
+  show("rooms");
+}
+
+$("quick").onclick = async () => {
+  const list = await fetchRooms($("msg"));
+  if (!list || mode) return;
+  const pick = quickPick(list);
+  if (!pick.length) return showRooms(list, "No public room to join. Host one and others can find it with Quick play.");
+  tries = pick.slice(1).map((r) => r.code);
+  openRoom(pick[0].code, false);
+};
+$("roomsBtn").onclick = async () => {
+  const list = await fetchRooms($("msg"));
+  if (list && !mode) showRooms(list);
+};
+$("roomsRefresh").onclick = async () => {
+  const list = await fetchRooms($("roomsNote"));
+  if (list) showRooms(list);
+};
+$("roomsHost").onclick = () => openRoom(newCode(), true, true);
+$("roomsBack").onclick = () => show("menu");
 $("join").onclick = () => {
   const code = $("joinCode").value.trim().toUpperCase();
   if (code.length === 4) openRoom(code, false);
@@ -605,7 +771,7 @@ $("shareLink").onclick = () => navigator.share({ title: "Kaboom Arena", text: "J
 
 function online() {
   const ok = navigator.onLine;
-  $("create").disabled = $("join").disabled = !ok;
+  $("create").disabled = $("join").disabled = $("quick").disabled = $("roomsBtn").disabled = !ok;
   if (!ok) $("msg").textContent = "Offline: only solo mode is available.";
 }
 addEventListener("online", online);
@@ -726,6 +892,7 @@ function feelStep(g) {
   extraCalls(g.s);
   g.bub = fd.bub;
   g.clock = clock;
+  g.emo = emo.view(clock, settings.emotes);
   const slow = fx.timeFx ? timeScale(fd, clock) : 1;
   ts = mode === "replay" ? rpSpeed : slow;
   g.ts = mode === "replay" ? 1 : slow;
@@ -758,13 +925,14 @@ function loop(now) {
     input.poll();
     tick();
     if (mode === "host" && game && frame % SNAP_EVERY === 0) sendSnap();
-    if (mode === "guest" && gnet) guestTick();
+    if (mode === "guest" && gnet && !spec) guestTick();
   }
   if (mode === "guest" && game && !lostAt && now - lastSnap > 4000) lose();
   if (lostAt && performance.now() - lostAt > RECONNECT_MS) toMenu("Connection lost.");
   if (mode === "guest" && game && gnet) game.s = gnet.frame(performance.now());
   if (game && !paused) feelStep(game);
   syncAct();
+  syncEmoUi();
   syncRematch();
   if (mode === "replay") syncReplay();
   if (game && !paused && mode !== "replay") rumble(game);
@@ -858,7 +1026,7 @@ $("vibTest").onclick = () => {
   haptics.fire("test", { phone: true, pads: Object.keys(sources).filter((n) => n.startsWith("pad")) });
   $("vibStatus").textContent = vibrationReport(vibSent);
 };
-addEventListener("keydown", (e) => e.code === "Escape" && document.querySelector("#settings.on, #daily.on, #replays.on") && show("menu"));
+addEventListener("keydown", (e) => e.code === "Escape" && document.querySelector("#settings.on, #daily.on, #replays.on, #rooms.on") && show("menu"));
 
 // ---- replays, daily challenge ------------------------------------------------------------------------------------------
 
