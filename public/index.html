@@ -86,6 +86,12 @@
   .h3-toast.on { opacity: 1; }
   .h3-stat { display: block; margin-top: 4px; font-size: 14px; color: #d6a8ff; }
   .h3-stat:empty { display: none; }
+  .h3-dock { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; padding: 6px 12px; border-radius: 8px; background: #000a; font-size: 13px; pointer-events: none; white-space: nowrap; }
+  .h3-dock:empty { display: none; }
+  .h3-dock span { display: flex; align-items: center; gap: 6px; border-left: 4px solid var(--c); padding-left: 6px; }
+  .h3-dock img { width: 20px; height: 20px; image-rendering: pixelated; }
+  .h3-dock .ring { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-style: normal; font-size: 11px; background: radial-gradient(#14141f 56%, #0000 58%), conic-gradient(var(--c) var(--f), #fff3 0); }
+  @media (pointer: coarse) { .h3-dock { bottom: 150px; } }
   .h3-spec { display: none; position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 8px; background: #000a; white-space: nowrap; }
   .h3-banner { position: absolute; left: 0; right: 0; top: 42%; text-align: center; font-size: 28px; padding: 14px; background: #000b; border-block: 2px solid #ffd23c; }
   #touch { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 3; }
@@ -117,6 +123,9 @@
   #pad { position: absolute; left: max(20px, env(safe-area-inset-left)); bottom: 20px; width: 130px; height: 130px; border-radius: 50%; background: #fff2; touch-action: none; display: flex; align-items: center; justify-content: center; }
   #knob { width: 54px; height: 54px; border-radius: 50%; background: #fff6; pointer-events: none; }
   #bombBtn { position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: 30px; width: 100px; height: 100px; min-width: 0; padding: 0; border-radius: 50%; background: #e8453ccc; font-size: 2.4rem; touch-action: none; }
+  #actBtn { position: absolute; right: calc(max(20px, env(safe-area-inset-right)) + 112px); bottom: 24px; width: 72px; height: 72px; min-width: 0; padding: 0; border-radius: 50%; border: 3px solid #fffb; background: conic-gradient(#3a8be8cc var(--f, 100%), #0009 0); font-size: 1.7rem; touch-action: none; }
+  #actBtn[hidden] { display: none; }
+  #actBtn.rdy { border-color: #ffd23c; }
 
   #menu { overflow: hidden; gap: 0; }
   #attract { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
@@ -386,7 +395,7 @@
   <div id="rematch" class="overlay"><h2 id="rematchTitle"></h2><div id="rematchRecap" class="recap"></div><button id="again" class="btn-main">Play again</button><div id="rematchWait">Waiting for the host…</div><button id="rematchMenu" class="alt">Back to menu</button></div>
   <div id="recap" class="recap" role="status"></div>
   <div id="pause"><h2>Paused</h2><button id="resume" class="btn-main">Resume</button><button id="pauseHelp" class="alt">How to play</button><button id="pauseQuit" class="alt">Quit to menu</button><small>P / Esc / gamepad Start · N mutes</small></div>
-  <div id="touch"><div id="pad"><div id="knob"></div></div><button id="bombBtn">💣</button></div>
+  <div id="touch"><div id="pad"><div id="knob"></div></div><button id="bombBtn">💣</button><button id="actBtn" hidden aria-label="Ability">⚡</button></div>
 </div>
 <div id="reconn" class="overlay">Reconnecting…</div>
 <div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
@@ -409,6 +418,16 @@
       <li><b>Spikes</b> dark, then yellow warning, then red: deadly</li>
       <li><b>Chaos</b> bomb rain, item rain, quake, swap and frenzy are announced 1.5 s ahead</li>
     </ul>
+    <div class="label">Special bombs and abilities (optional, in Settings)</div>
+    <ul id="helpItemsX" class="items"></ul>
+    <ul class="keys">
+      <li><b>Glove, Punch</b> bomb key: on a bomb it throws it 3 tiles, facing a bomb it knocks it 2 tiles. Both fly over blocks</li>
+      <li><b>Ice bomb</b> freezes for 2 s instead of killing, but a normal blast still kills a frozen player</li>
+      <li><b>Mine</b> nearly invisible to rivals, goes off 0.5 s after one steps next to it</li>
+      <li><b>Abilities</b> second key, with a cooldown ring in the bottom bar. Each colour has its own; in story mode every fighter uses a signature move</li>
+    </ul>
+    <ul id="helpAbil" class="keys">
+    </ul>
     <div class="label">Game modes</div>
     <ul class="keys">
       <li><b>Hill</b> stand alone in the 3x3 zone to score: 30 points wins</li>
@@ -419,8 +438,9 @@
     <ul class="keys">
       <li><b>P1</b> WASD / ZQSD + Space</li>
       <li><b>P2</b> Arrows + Enter</li>
-      <li><b>Gamepad</b> D-pad or stick, any button drops a bomb, Start pauses</li>
-      <li><b>Touch</b> left pad to move, 💣 to drop a bomb</li>
+      <li><b>Gamepad</b> D-pad or stick, any button drops a bomb, Start pauses. With abilities on, X is the ability button</li>
+      <li><b>Touch</b> left pad to move, 💣 to drop a bomb, ⚡ for the ability (only with abilities on)</li>
+      <li><b>Ability</b> E or Left Shift (P1), Right Shift or 0 (P2). In first person it uses the direction you last walked</li>
       <li><b>Pause</b> P or Esc</li>
       <li><b>Sound</b> N mutes or unmutes (settings: effects, music style, voice)</li>
       <li><b>First person</b> Graphics: Bomber Shooter. ←/→ turn, ↑/↓ walk, , and . strafe, M minimap. In local games only the first player gets this view.</li>

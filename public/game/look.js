@@ -1,4 +1,4 @@
-import { W, KICK_EVERY, spikeIn, SPIKE_ON, SPIKE_WARN } from "./sim.js";
+import { W, KICK_EVERY, spikeIn, SPIKE_ON, SPIKE_WARN, ABILITIES, B_MINE, MINE_DELAY } from "./sim.js";
 
 // ground/speck: 2 checker shades; hard: [base, hi, lo, face, faceHi, faceLo, stud]; soft: [base, brick, highlight].
 // d3: ground colours + speckle, hard colour/metalness, soft [base, hue, sat, light], background, hemisphere [sky, ground, k], sun [colour, k].
@@ -127,6 +127,22 @@ export function hudEntries(g) {
   });
   return tm ? rows.sort((a, b) => a.team - b.team || a.i - b.i) : rows;
 }
+
+// Special bombs (bomb.ty). Shapes differ too (studs, flat disc, crystal), colour is never the only cue.
+export const BOMB_INFO = [null, { name: "CLUSTER", col: "#ffb02a" }, { name: "MINE", col: "#9be36a" }, { name: "ICE", col: "#7ad0ff" }, { name: "MINI", col: "#ff8a2a" }];
+export const ICE_FLAME = ["#3a7bd8", "#7ad0ff", "#d6f4ff", "#ffffff"];
+
+// Mines are hidden from rivals: the owner and its team see them, everyone sees one that was triggered. me < 0 (shared screen) sees none.
+export const mineSeen = (s, b, me) => b.t <= MINE_DELAY || (me >= 0 && (b.owner === me || (!!s.cfg?.teams && s.cfg.teams[b.owner] === s.cfg.teams[me])));
+
+// HUD facts of one player's extras: ability (name, readiness 0..1, seconds left) and the special bombs held ("" when none).
+export function abilityInfo(p) {
+  const a = p && ABILITIES[p.ab];
+  if (!a) return null;
+  const cd = Math.max(0, p.cd | 0);
+  return { name: a[1], key: a[0], ready: cd === 0, frac: 1 - cd / a[2], secs: Math.ceil(cd / 60) };
+}
+export const heldBombs = (p) => (p?.spn > 0 && BOMB_INFO[p.sp] ? { ...BOMB_INFO[p.sp], n: p.spn, ty: p.sp } : null);
 
 // Tile position of a bomb; sliding bombs advance continuously towards the next tile (sc counts ticks since the last hop).
 export function bombPos(b, grid) {

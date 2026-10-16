@@ -6,13 +6,13 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { W, H, T, SUDDEN, FLAME, FUSE, END_DELAY, ICE, CONV, SPIKE, TELE, SPIKE_ON, SPIKE_WARN, POTATO_TICKS, spikeIn } from "./sim.js";
+import { W, H, T, SUDDEN, FLAME, FUSE, END_DELAY, ICE, CONV, SPIKE, TELE, SPIKE_ON, SPIKE_WARN, POTATO_TICKS, spikeIn, B_CLUSTER, B_MINE, B_ICE, B_MINI, FLY_TICKS, MINE_DELAY } from "./sim.js";
 import { ICONS } from "./render.js";
 import { esc } from "./lobby.js";
 import { createObserver } from "./fx.js";
 import { loadPanel, savePanel, sanitizePanel, PANEL_DEFAULTS, bloomStrength, fpsLine, statLine, toastText, halluVariant, createCadence, createGovernor, flareDots, FLARE_N, DISCLAIMER, CATCHPHRASE } from "./dlss6.js";
 import { placeBubble } from "./director.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText, mineSeen, abilityInfo, heldBombs } from "./look.js";
 
 const MOBILE = matchMedia("(pointer: coarse)").matches;
 const FLAME_LIGHTS = MOBILE ? 2 : 6, MAX_PARTICLES = 400;
@@ -24,7 +24,7 @@ const GAG = { toast: [20, 40], toastShow: 3.5, halluc: [30, 60], halluShow: 0.6,
 const FAKE_FEATURES = ["Ray Reconstruction", "Frame Gen ×6", "Neural Faces™", "Super Resolution"];
 const PIN = /[?&]dlss6=max\b/.test(location.search);
 const FLARE_LIFE = 0.55, FLARE_COLS = [0xffd9a0, 0x6ad0ff, 0xff6ae0, 0xa0ffb0, 0xffa060];
-const HOT = [1, 0.62, 0.2], GOLD = [1, 0.9, 0.35], SMOKE = [0.75, 0.75, 0.8];
+const ICE_SPARK = [0.55, 0.85, 1], HOT = [1, 0.62, 0.2], GOLD = [1, 0.9, 0.35], SMOKE = [0.75, 0.75, 0.8];
 const WHITE = new THREE.Color(1, 1, 1);
 const pick = (a) => a[(Math.random() * a.length) | 0];
 
@@ -209,10 +209,12 @@ function makePlayer(id, skullMat, auraMat, tagMat, foe) {
   const tag = new THREE.Sprite(tagMat);
   tag.position.y = 1.55;
   tag.scale.setScalar(0.4);
-  for (const o of [ring, bubble, skull, aura, tag]) o.visible = false;
-  root.add(ring, bubble, skull, aura, tag);
+  const frost = new THREE.Mesh(FROST_GEO, FROST_MAT);
+  frost.position.y = 0.62;
+  for (const o of [ring, bubble, skull, aura, tag, frost]) o.visible = false;
+  root.add(ring, bubble, skull, aura, tag, frost);
 
-  root.userData = { body, torso, head, ant, eyes, glints, legs, arms, neural, skin, suit, ring, bubble, skull, aura, tag, lastWalk: 0, lean: 0, dieT: -1, foe };
+  root.userData = { body, torso, head, ant, eyes, glints, legs, arms, neural, skin, suit, ring, bubble, skull, aura, tag, frost, lastWalk: 0, lean: 0, dieT: -1, foe };
   root.scale.setScalar(1.15);
   return root;
 }
@@ -231,10 +233,36 @@ function makeBomb() {
   halo.rotation.x = Math.PI / 2;
   halo.position.y = 0.06;
   halo.visible = false;
-  g.add(body, fuse, spark, halo);
-  g.userData = { body, spark, halo };
+  const studs = new THREE.Group(), crystals = new THREE.Group();
+  for (const [x, y, z] of [[0.3, 0.55, 0.12], [-0.28, 0.5, 0.2], [0.05, 0.28, 0.34], [-0.1, 0.62, -0.3]]) {
+    const m = new THREE.Mesh(STUD_GEO, STUD_MAT);
+    m.position.set(x, y, z);
+    studs.add(m);
+  }
+  for (const [x, y, z, rz, rx] of [[0.38, 0.38, 0, -1.2, 0], [-0.38, 0.38, 0, 1.2, 0], [0, 0.38, 0.38, 0, 1.2], [0, 0.38, -0.38, 0, -1.2]]) {
+    const m = new THREE.Mesh(CRYSTAL_GEO, CRYSTAL_MAT);
+    m.position.set(x, y, z);
+    m.rotation.set(rx, 0, rz);
+    crystals.add(m);
+  }
+  const base = new THREE.Mesh(MINE_GEO, MINE_MAT);
+  base.position.y = 0.07;
+  const led = new THREE.Mesh(LED_GEO, LED_MAT.clone());
+  led.position.y = 0.19;
+  base.visible = led.visible = studs.visible = crystals.visible = false;
+  g.add(body, fuse, spark, halo, studs, crystals, base, led);
+  g.userData = { body, fuse, spark, halo, studs, crystals, base, led };
   return g;
 }
+
+const STUD_GEO = new THREE.SphereGeometry(0.09, 8, 6), STUD_MAT = new THREE.MeshStandardMaterial({ color: 0xffb02a, emissive: 0xaa6a00, emissiveIntensity: 0.8 });
+const CRYSTAL_GEO = new THREE.ConeGeometry(0.07, 0.26, 6), CRYSTAL_MAT = new THREE.MeshStandardMaterial({ color: 0xbdeeff, emissive: 0x3a9ad8, emissiveIntensity: 0.7 });
+const MINE_GEO = new THREE.CylinderGeometry(0.4, 0.44, 0.14, 24), MINE_MAT = new THREE.MeshStandardMaterial({ color: 0x24402a, roughness: 0.5, metalness: 0.4 });
+const LED_GEO = new THREE.SphereGeometry(0.07, 8, 6), LED_MAT = new THREE.MeshStandardMaterial({ color: 0xff3b30, emissive: 0xff1810, emissiveIntensity: 3 });
+const ICE_OUTER = new THREE.MeshStandardMaterial({ color: 0x5ab8ff, emissive: 0x2a7ad8, emissiveIntensity: 1.4, transparent: true, opacity: 0.9 });
+const ICE_CORE = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xd6f4ff, emissiveIntensity: 2.2 });
+const FROST_MAT = new THREE.MeshStandardMaterial({ color: 0xa8e4ff, emissive: 0x3a9ad8, emissiveIntensity: 0.5, transparent: true, opacity: 0.55, roughness: 0.1, depthWrite: false });
+const FROST_GEO = new THREE.BoxGeometry(0.66, 1.35, 0.66);
 
 const FIRE_OUTER = new THREE.MeshStandardMaterial({ color: 0xff5a10, emissive: 0xff4a00, emissiveIntensity: 1.4, transparent: true, opacity: 0.9 });
 const FIRE_CORE = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2b0, emissiveIntensity: 2.2 });
@@ -251,8 +279,11 @@ function makeJet() {
 
 // Groups adjacent flame cells of the same explosion into straight runs so the blast reads as one continuous jet.
 function flameRuns(flames) {
-  const cells = new Map();
-  for (const f of flames) cells.set(`${f.x},${f.y}`, Math.max(f.t, cells.get(`${f.x},${f.y}`) ?? 0));
+  const cells = new Map(), iced = new Set();
+  for (const f of flames) {
+    cells.set(`${f.x},${f.y}`, Math.max(f.t, cells.get(`${f.x},${f.y}`) ?? 0));
+    if (f.i) iced.add(`${f.x},${f.y}`);
+  }
   const same = (x, y, t) => cells.get(`${x},${y}`) === t;
   const runs = [];
   const hit = new Set();
@@ -263,7 +294,7 @@ function flameRuns(flames) {
       let len = 1;
       while (same(x + dx * len, y + dy * len, t)) len++;
       if (len > 1) {
-        runs.push({ x: x + 0.5 + (dx * (len - 1)) / 2, z: y + 0.5 + (dy * (len - 1)) / 2, len, horiz: !!dx, t });
+        runs.push({ x: x + 0.5 + (dx * (len - 1)) / 2, z: y + 0.5 + (dy * (len - 1)) / 2, len, horiz: !!dx, t, ice: iced.has(key) });
         for (let i = 0; i < len; i++) {
           const k = `${x + dx * i},${y + dy * i}`;
           if (hit.has(`${k}|${dx ? "v" : "h"}`)) hit.add(`${k}|x`);
@@ -276,7 +307,7 @@ function flameRuns(flames) {
   for (const [key, t] of cells) {
     if (hit.has(`${key}|x`) || (!hit.has(`${key}|h`) && !hit.has(`${key}|v`))) {
       const [x, y] = key.split(",").map(Number);
-      balls.push({ x: x + 0.5, z: y + 0.5, t });
+      balls.push({ x: x + 0.5, z: y + 0.5, t, ice: iced.has(key) });
     }
   }
   return { runs, balls };
@@ -411,6 +442,7 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
     depthTest: false,
   }));
   const auraMat = new THREE.SpriteMaterial({ map: puffTex, color: 0xb040ff, opacity: 0.45, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
+  const icePuff = new THREE.SpriteMaterial({ map: puffTex, color: 0x8fd8ff, opacity: 0.22, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
   const puffMats = [0xff6a1a, 0xffc060].map((color) => new THREE.SpriteMaterial({ map: puffTex, color, opacity: 0.22, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
   const sparkGeo = new THREE.BufferGeometry();
   const sparkPos = new Float32Array(MAX_PARTICLES * 3).fill(-100), sparkCol = new Float32Array(MAX_PARTICLES * 3).fill(0.8);
@@ -676,6 +708,20 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
   const [elScores, elInfo, elFrenzy, elLeft, elToast, elBanner, elSpec, elCall, ...elBub] = hud.children;
   const [elBadge, elGear] = elLeft.children;
   const [elBannerText, elStat] = elBanner.children;
+  const elDock = Object.assign(document.createElement("div"), { className: "h3-dock" });
+  hud.appendChild(elDock);
+  const iconUrl = [];
+  const icon = (i) => (iconUrl[i] ??= ICONS[i].toDataURL());
+  // Ability ring + held special bombs per player; only fixed names and numbers go into the markup.
+  function dockHtml(g) {
+    const s = g.s;
+    if (!s.cfg?.bombs && !s.cfg?.abilities) return "";
+    const list = (g.me >= 0 ? [s.players[g.me]] : s.players.slice(0, humansOf(s))).filter((p) => p?.alive);
+    return list.map((p) => {
+      const a = abilityInfo(p), h = heldBombs(p);
+      return `<span style="--c:${palette().suit[p.id]}">${a ? `<i class="ring" style="--f:${Math.round(a.frac * 20) * 5}%">${a.ready ? a.name[0] : a.secs}</i><b>${a.name}</b>` : ""}${h ? `<img src="${icon(9 + h.ty)}" alt=""><b>${h.name} x${h.n}</b>` : ""}${p.gl ? `<img src="${icon(8)}" alt="Glove">` : ""}${p.pn ? `<img src="${icon(9)}" alt="Punch">` : ""}</span>`;
+    }).join("");
+  }
 
   let dlss = true, scale = MOBILE ? 0.7 : 1, w = 1, h = 1, shake = 0, still = false;
   const dpr = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 2);
@@ -1014,10 +1060,12 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
     const out = g.me >= 0 && !s.done && s.players[g.me]?.alive === false && !g.banner;
     if (g.banner !== lastBanner) { lastBanner = g.banner; statN = 23 + ((Math.random() * 390) | 0); statK = (Math.random() * 3) | 0; }
     const stat = dlss && !g.retro && g.banner && (s.end >= 0 || s.done) ? statLine(statN, statK) : "";
-    const key = scores + extra + info + badge + g.banner + stat + out + !!g.retro;
+    const dock = dockHtml(g);
+    const key = scores + extra + info + badge + g.banner + stat + out + !!g.retro + dock;
     if (key === lastHud) return;
     lastHud = key;
     elScores.innerHTML = scores + extra;
+    elDock.innerHTML = dock;
     elInfo.innerHTML = info;
     elBadge.innerHTML = badge;
     elBadge.className = `h3-badge ${dlss ? "on" : ""}`;
@@ -1184,7 +1232,11 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
       }
       u.ring.visible = u.foe || !!tm;
       if (tm && !u.foe) u.ring.material.color.set(teamInfo(tm[i]).col);
-      u.bubble.visible = p.shield > 0 && !(p.shield < 60 && p.shield % 10 < 5);
+      const ghost = p.inv > 0, ally = g.me < 0 || i === g.me || (tm && tm[i] === tm[g.me]);
+      u.body.visible = !ghost || (ally && !(!still && p.inv < 30 && p.inv % 6 < 3));
+      u.frost.visible = p.fz > 0 && !(!still && p.fz < 30 && p.fz % 6 < 3);
+      u.bubble.visible = (p.shield > 0 && !(p.shield < 60 && p.shield % 10 < 5)) || ghost;
+      u.bubble.material.opacity = ghost && !(p.shield > 0) ? 0.12 : 0.28;
       u.skull.visible = u.aura.visible = !!p.curse;
       u.skull.position.y = 1.9 + Math.sin(now / 200) * 0.06;
       const moving = p.walk !== u.lastWalk;
@@ -1220,10 +1272,16 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
     s.bombs.forEach((b, i) => {
       const o = bombs[i];
       const rate = b.t < 40 ? 3 : 1;
-      const [bx, by] = bombPos(b, s.grid), remote = !!s.players[b.owner]?.remote;
+      let [bx, by] = bombPos(b, s.grid);
+      const remote = !!s.players[b.owner]?.remote, ty = b.ty | 0;
       let y = 0, sx = 1, sy = 1;
+      if (b.fa > 0) {
+        const k = 1 - b.fa / FLY_TICKS;
+        bx = b.fx + (b.x - b.fx) * k; by = b.fy + (b.y - b.fy) * k;
+        y = Math.sin(k * Math.PI) * 2.2;
+      }
       const key = b.y * W + b.x, t0 = drops.get(key);
-      if (t0 !== undefined) {
+      if (t0 !== undefined && !(b.fa > 0)) {
         const a = clk - t0;
         if (a >= FX.drop) drops.delete(key);
         else if (a < 0.14) { const q = a / 0.14; y = 0.9 * (1 - q * q); sx = 0.94; sy = 1.12; }
@@ -1232,13 +1290,21 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
       }
       o.position.set(bx + 0.5, y, by + 0.5);
       o.scale.set(sx, sy, sx);
-      const { halo, body } = o.userData;
-      halo.visible = remote;
-      halo.material.opacity = 0.55 + 0.4 * Math.sin(s.tick / 4);
-      body.material.color.setHex(remote ? 0x4a0c10 : 0x15151c);
-      body.material.emissive.setHex(remote ? 0x6a0a0a : 0);
-      o.userData.body.scale.setScalar(1 + Math.sin((b.t * rate) / 5) * 0.07);
-      o.userData.spark.visible = b.t % 8 < 5;
+      const { halo, body, fuse, spark, studs, crystals, base, led } = o.userData;
+      const isMine = ty === B_MINE, hot = isMine && b.t <= MINE_DELAY, seen = !isMine || mineSeen(s, b, g.me);
+      halo.visible = remote || (isMine && (hot || !seen));
+      halo.material.opacity = isMine && !seen && !hot ? 0.16 : 0.55 + 0.4 * Math.sin(s.tick / 4);
+      halo.material.color.setHex(isMine ? (hot ? 0xff3b30 : 0xffffff) : 0xff463c);
+      body.visible = fuse.visible = !isMine;
+      base.visible = led.visible = isMine && (seen || hot);
+      studs.visible = ty === B_CLUSTER;
+      crystals.visible = ty === B_ICE;
+      body.material.color.setHex(ty === B_ICE ? 0x2a6f9a : remote ? 0x4a0c10 : 0x15151c);
+      body.material.emissive.setHex(ty === B_ICE ? 0x0a3a6a : remote ? 0x6a0a0a : 0);
+      body.scale.setScalar((1 + Math.sin((b.t * rate) / 5) * 0.07) * (ty === B_MINI ? 0.55 : 1));
+      if (ty === B_MINI) { body.material.color.setHex(0xff8a2a); body.material.emissive.setHex(0x8a3a00); }
+      spark.visible = !isMine && b.t % 8 < 5;
+      led.visible &&= hot || still || s.tick % 40 < 8;
       if (!still && Math.random() < dt * (2 + 14 * (1 - Math.min(b.t, FUSE) / FUSE)) * FX.fuseRate) emit(bx + 0.64, y + 0.9 * sy, by + 0.5, 1, GOLD, 1.2, 0.5);
     });
 
@@ -1255,6 +1321,8 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
       o.position.set(r.x, 0.5, r.z);
       o.rotation.y = r.horiz ? 0 : Math.PI / 2;
       const half = ((r.len - 1) / 2 + 0.42) * e;
+      o.userData.outer.material = r.ice ? ICE_OUTER : FIRE_OUTER;
+      o.userData.core.material = r.ice ? ICE_CORE : FIRE_CORE;
       o.userData.outer.scale.set(half, 0.4 * e * flick, 0.4 * e * flick);
       o.userData.core.scale.set(half * 0.92, 0.2 * e * flick, 0.2 * e * flick);
     });
@@ -1263,6 +1331,8 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
       const o = balls[i], e = envelope(b.t), flick = 0.92 + Math.random() * 0.16;
       o.position.set(b.x, 0.5, b.z);
       o.rotation.y = 0;
+      o.userData.outer.material = b.ice ? ICE_OUTER : FIRE_OUTER;
+      o.userData.core.material = b.ice ? ICE_CORE : FIRE_CORE;
       o.userData.outer.scale.setScalar(0.62 * e * flick);
       o.userData.core.scale.setScalar(0.4 * e * flick);
     });
@@ -1272,23 +1342,23 @@ export function createRenderer3D(canvas, hudParent, { onPanel } = {}) {
       const n = Math.round(r.len * 1.6) + 1, e = envelope(r.t);
       for (let k = 0; k < n; k++) {
         const along = ((k + Math.random() * 0.6) / n - 0.5) * (r.len + 0.4);
-        puffSpots.push([r.x + (r.horiz ? along : 0), r.z + (r.horiz ? 0 : along), e]);
+        puffSpots.push([r.x + (r.horiz ? along : 0), r.z + (r.horiz ? 0 : along), e, r.ice]);
       }
     }
-    for (const b of blobs) puffSpots.push([b.x, b.z, envelope(b.t)]);
+    for (const b of blobs) puffSpots.push([b.x, b.z, envelope(b.t), b.ice]);
     grow(puffs, () => new THREE.Sprite(puffMats[0]), puffSpots.length);
-    puffSpots.forEach(([x, z, e], i) => {
+    puffSpots.forEach(([x, z, e, ice], i) => {
       const o = puffs[i];
-      o.material = puffMats[i % 2];
+      o.material = ice ? icePuff : puffMats[i % 2];
       o.position.set(x + (Math.random() - 0.5) * 0.25, 0.45 + Math.random() * 0.3, z + (Math.random() - 0.5) * 0.25);
       o.scale.setScalar((0.8 + Math.random() * 0.5) * e);
     });
-    for (const f of fresh) emit(f.x + 0.5, 0.4, f.y + 0.5, 6);
+    for (const f of fresh) emit(f.x + 0.5, 0.4, f.y + 0.5, 6, f.i ? ICE_SPARK : HOT);
     if (fresh.length && !still) shake = Math.min(1, shake + 0.35);
     flameLights.forEach((l, i) => {
       const f = s.flames[Math.floor((i * s.flames.length) / FLAME_LIGHTS)];
       l.intensity = f ? 9 * Math.min(1, f.t / FLAME) : 0;
-      if (f) l.position.set(f.x + 0.5, 1.2, f.y + 0.5);
+      if (f) { l.position.set(f.x + 0.5, 1.2, f.y + 0.5); l.color.setHex(f.i ? 0x6ac8ff : 0xff7a20); }
     });
 
     for (let i = 0; i < MAX_PARTICLES; i++) {

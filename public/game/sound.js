@@ -1,4 +1,4 @@
-import { W, H, T, spikeIn, ICE, SPIKE, EVENTS } from "./sim.js";
+import { W, H, T, spikeIn, ICE, SPIKE, EVENTS, B_MINE, B_MINI, MINE_DELAY } from "./sim.js";
 import { createObserver } from "./fx.js";
 import { pickPlan, hash } from "./music.js";
 
@@ -11,6 +11,9 @@ export const SFX_INFO = {
   tparm: [2, 400], tp: [6, 150], ice: [2, 500], spikeup: [3, 150], spikedn: [1, 150],
   ev0: [7, 0], ev1: [7, 0], ev2: [7, 0], ev3: [7, 0], ev4: [7, 0], quake: [7, 0], swap: [6, 0], frenzy: [6, 0], drop: [4, 0],
   hillpt: [4, 200], hillmove: [5, 0], pass: [6, 150], potbeep: [5, 0], wave: [7, 0],
+  pick8: [6, 60], pick9: [6, 60], pick10: [6, 60], pick11: [6, 60], pick12: [6, 60],
+  throw: [5, 120], freeze: [7, 200], minearm: [7, 150], plant: [2, 150], cluster: [6, 200],
+  ab1: [5, 150], ab2: [5, 150], ab3: [6, 150], ab4: [5, 150], ab5: [5, 150], ab6: [6, 150], ab7: [6, 150], ab8: [5, 150], ab9: [6, 150],
 };
 export const VOICES = 16;
 const JINGLES = new Set(["start", "win", "lose", "draw", "matchwin", "matchlose"]);
@@ -25,7 +28,8 @@ export function claim(live, prio, now, cap = VOICES) {
   return live[low].prio <= prio ? low : -2;
 }
 
-const N = W * H, MAXP = 16, EVN = EVENTS.map((_, i) => `ev${i}`), PICK = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => `pick${i}`);
+const N = W * H, MAXP = 16, EVN = EVENTS.map((_, i) => `ev${i}`), PICK = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => `pick${i}`);
+const ABN = [null, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => i && `ab${i}`);
 const SHIELD = 6;
 
 // Round result from the human point of view: "win" | "lose" | "draw". human(id) says whether player id is a local human.
@@ -65,12 +69,19 @@ export function createSoundObserver() {
   let base = createObserver();
   const fl = new Uint8Array(N), nf = new Uint8Array(N), occ = new Uint8Array(N), nocc = new Uint8Array(N), spk = new Uint8Array(N);
   const alive = new Uint8Array(MAXP), shield = new Int16Array(MAXP), tpc = new Int16Array(MAXP), tp = new Int16Array(MAXP), ice = new Uint8Array(MAXP);
+  const cd = new Int16Array(MAXP), fz = new Uint8Array(MAXP);
+  let maxFa = 0, hot = 0, minis = 0;
   let tick = -1, n = 0, sd = 0, end = -1, slides = 0, minT = 9999, evIdx = -1, evT = 0, evOn = false, wave = 0, hx = -1, hy = -1, hsum = 0, holder = -1, lastBeep = 0;
   let cs = null, cc = null, con = null, walls = 0, wallX = 0;
 
   const cb = (kind, a, b, c) => {
     if (kind === "wall") { walls++; wallX += a; }
-    else if (kind === "bomb") con("bomb", a, 1);
+    else if (kind === "bomb") {
+      const bb = cs.bombs.find((q) => q.x === a && q.y === b), ty = bb?.ty | 0;
+      if (ty === B_MINI || bb?.fa > 0) return;
+      if (ty === B_MINE) con("plant", a, bb.owner === cc.me ? 0.6 : 0.12);
+      else con("bomb", a, 1);
+    }
     else if (kind === "die") {
       const p = cs.players[a];
       if (p.dormant) return;
@@ -85,12 +96,17 @@ export function createSoundObserver() {
     fl.set(nf);
     occ.set(nocc);
     slides = 0; minT = 9999;
+    maxFa = hot = minis = 0;
     for (const b of s.bombs) {
       if (b.dx || b.dy) slides++;
-      else if (b.t < minT) minT = b.t;
+      else if (b.t < minT && b.ty !== B_MINE) minT = b.t;
+      if (b.fa > maxFa) maxFa = b.fa;
+      if (b.ty === B_MINE && b.t <= MINE_DELAY) hot++;
+      else if (b.ty === B_MINI) minis++;
     }
     for (let i = 0; i < np; i++) {
       const p = s.players[i];
+      cd[i] = p.cd | 0; fz[i] = p.fz | 0;
       alive[i] = p.alive ? 1 : 0; shield[i] = p.shield | 0; tpc[i] = p.tpc | 0; tp[i] = p.tp | 0;
       ice[i] = s.floor && p.alive && s.floor[Math.floor(p.y / T) * W + Math.floor(p.x / T)] === ICE ? 1 : 0;
     }
@@ -132,9 +148,18 @@ export function createSoundObserver() {
       if (gone >= 3) on("chain", sumX / fresh_, Math.min(1, gone / 6));
     }
     for (const b of s.bombs) {
-      if (b.dx || b.dy) { slideNow++; slideX = b.x; } else if (b.t < minNow) minNow = b.t;
+      if (b.dx || b.dy) { slideNow++; slideX = b.x; } else if (b.t < minNow && b.ty !== B_MINE) minNow = b.t;
     }
     if (slideNow > slides) on("kick", slideX, 1);
+    let fa = 0, hotNow = 0, minisNow = 0, ringX = -1;
+    for (const b of s.bombs) {
+      if (b.fa > fa) fa = b.fa;
+      if (b.ty === B_MINE && b.t <= MINE_DELAY) hotNow++;
+      else if (b.ty === B_MINI) { minisNow++; ringX = b.x; }
+    }
+    if (fa > maxFa) on("throw", -1, 1);
+    if (hotNow > hot) on("minearm", -1, 1);
+    if (minisNow > minis && minis === 0) on("cluster", ringX, 1);
     if (minNow <= 90 && minNow < minT && ((minNow / 30) | 0) < ((Math.min(minT, 999) / 30) | 0)) on("fuse", -1, 1 - minNow / 90);
 
     for (let i = 0; i < np; i++) {
@@ -145,6 +170,8 @@ export function createSoundObserver() {
       if ((p.tpc | 0) > tpc[i]) on("tp", x, mine);
       else if ((p.tp | 0) > 0 && tp[i] === 0) on("tparm", x, mine);
       if (s.floor && p.alive && s.floor[Math.floor(p.y / T) * W + Math.floor(p.x / T)] === ICE && !ice[i]) on("ice", x, mine);
+      if ((p.fz | 0) > 0 && fz[i] === 0 && p.alive) on("freeze", x, mine);
+      if ((p.cd | 0) > cd[i] + 1 && p.ab > 0 && ABN[p.ab]) on(ABN[p.ab], x, mine);
     }
     if (s.floor) {
       for (let i = 0; i < N; i++) {

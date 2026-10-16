@@ -1,13 +1,16 @@
 const SCHEMES = {
-  kb1: { KeyW: [0, -1], KeyZ: [0, -1], KeyS: [0, 1], KeyA: [-1, 0], KeyQ: [-1, 0], KeyD: [1, 0], Space: "bomb" },
-  kb2: { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], Enter: "bomb" },
+  kb1: { KeyW: [0, -1], KeyZ: [0, -1], KeyS: [0, 1], KeyA: [-1, 0], KeyQ: [-1, 0], KeyD: [1, 0], Space: "bomb", KeyE: "act", ShiftLeft: "act" },
+  kb2: { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], Enter: "bomb", ShiftRight: "act", Numpad0: "act", Digit0: "act" },
 };
+
+// The pad's X button is the ability key only while the game uses abilities (main.js sets it); otherwise every button still drops a bomb.
+export const pads = { act: false };
 
 export const sources = { kb1: blank(), kb2: blank(), touch: blank() };
 export const SOURCE_LABEL = { kb1: "Keyboard WASD/ZQSD + Space", kb2: "Keyboard arrows + Enter", touch: "Touch" };
 
 function blank() {
-  return { dx: 0, dy: 0, bomb: false };
+  return { dx: 0, dy: 0, bomb: false, act: false };
 }
 
 export function merge(names) {
@@ -17,13 +20,14 @@ export function merge(names) {
     if (!s) continue;
     if (!out.dx && !out.dy) { out.dx = s.dx; out.dy = s.dy; }
     out.bomb ||= s.bomb;
+    out.act ||= s.act;
   }
   return out;
 }
 
-export const clearBombs = () => { for (const s of Object.values(sources)) s.bomb = false; };
+export const clearBombs = () => { for (const s of Object.values(sources)) s.bomb = s.act = false; };
 
-export function createInput(pad, bombBtn, onPress, onChange, onPause) {
+export function createInput(pad, bombBtn, actBtn, onPress, onChange, onPause) {
   const set = (name, dx, dy) => {
     const s = sources[name];
     if (s.dx === dx && s.dy === dy) return;
@@ -37,9 +41,10 @@ export function createInput(pad, bombBtn, onPress, onChange, onPause) {
     if (e.target.tagName === "INPUT" || (e.target.tagName === "BUTTON" && !e.target.closest("#game"))) return;
     for (const [name, map] of Object.entries(SCHEMES)) {
       const v = map[e.code];
-      if (!v) continue;
+      if (!v || (v === "act" && (e.ctrlKey || e.metaKey || e.altKey))) continue;
       e.preventDefault();
       if (v === "bomb") { if (!e.repeat) press(name); }
+      else if (v === "act") { if (!e.repeat) sources[name].act = true; }
       else {
         if (!held[name].includes(e.code)) held[name].push(e.code);
         set(name, ...map[held[name].at(-1)]);
@@ -74,6 +79,7 @@ export function createInput(pad, bombBtn, onPress, onChange, onPause) {
   pad.addEventListener("pointerup", release);
   pad.addEventListener("pointercancel", release);
   bombBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); press("touch"); });
+  actBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); sources.touch.act = true; });
 
   const prev = {};
   function poll() {
@@ -92,8 +98,11 @@ export function createInput(pad, bombBtn, onPress, onChange, onPause) {
       }
       const key = `${dx},${dy}`;
       if (key !== prev[name].key) { prev[name].key = key; set(name, dx, dy); }
-      const bomb = b(0) || b(1) || b(2) || b(3) || b(7);
+      const bomb = b(0) || b(1) || (!pads.act && b(2)) || b(3) || b(7);
       if (bomb && !prev[name].bomb) press(name);
+      const act = pads.act && b(2);
+      if (act && !prev[name].act) sources[name].act = true;
+      prev[name].act = act;
       prev[name].bomb = bomb;
       const startBtn = b(9);
       if (startBtn && !prev[name].start) onPause?.();

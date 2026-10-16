@@ -1,21 +1,27 @@
-import { movePlayer, placeBomb, FUSE } from "./sim.js";
+import { movePlayer, placeBomb, canLift, useAbility, FUSE } from "./sim.js";
 
 export const TICK_MS = 1000 / 60;
 const IDLE = 4;
 const LEAD = 2, MAX_AHEAD = 8, MAX_STALE = 10, MAX_BATCH = 16, MAX_STARVE = 12;
 const MAX_REPLAY = 90, SNAP_DIST = 24, TELEPORT = 40, ERR_DECAY = 0.85;
 const GHOST_TTL = 60, BUFFER = 30;
+const PREDICTED = ["cd", "fz", "dash", "inv", "sp", "spn"];
 
-// Input code: dx + 1 + 3 * (dy + 1), +9 when the bomb key was pressed on that tick.
-export const packInput = ({ dx = 0, dy = 0, bomb }) => dx + 1 + 3 * (dy + 1) + (bomb ? 9 : 0);
-const unpackInput = (c) => ({ dx: (c % 3) - 1, dy: Math.floor((c % 9) / 3) - 1, bomb: c >= 9 });
+// Input code: dx + 1 + 3 * (dy + 1), +9 when the bomb key was pressed on that tick, +18 for the ability key (codes < 18 are the old format).
+export const packInput = ({ dx = 0, dy = 0, bomb, act }) => dx + 1 + 3 * (dy + 1) + (bomb ? 9 : 0) + (act ? 18 : 0);
+const unpackInput = (c) => {
+  const inp = { dx: (c % 3) - 1, dy: Math.floor((c % 9) / 3) - 1, bomb: c % 18 >= 9 };
+  if (c >= 18) inp.act = true;
+  return inp;
+};
+const hasBomb = (c) => c % 18 >= 9;
 
 // The static floor travels with the grid as one base-36 character per tile (null when the round has none).
 export function packSnap(s, withGrid) {
   const { hidden, grid, flames, rs, cfg, floor, ...rest } = s;
   return {
     ...rest, g: withGrid ? grid.join("") : undefined, cfg: withGrid ? cfg : undefined,
-    fl: withGrid ? (floor ? floor.map((c) => c.toString(36)).join("") : null) : undefined, f: flames.map((f) => [f.x, f.y, f.t]),
+    fl: withGrid ? (floor ? floor.map((c) => c.toString(36)).join("") : null) : undefined, f: flames.map((f) => (f.i ? [f.x, f.y, f.t, 1] : [f.x, f.y, f.t])),
   };
 }
 
@@ -29,7 +35,7 @@ export function unpackSnap(p, prevGrid, prevCfg, prevFloor) {
     floor = typeof fl === "string" && fl.length === 195 ? Array.from(fl, (c) => parseInt(c, 36)) : undefined;
     if (floor?.some((c) => !(c >= 0 && c < 36))) floor = undefined;
   }
-  const out = { ...rest, grid, cfg: cfg ?? prevCfg, flames: f.map(([x, y, t]) => ({ x, y, t })) };
+  const out = { ...rest, grid, cfg: cfg ?? prevCfg, flames: f.map(([x, y, t, i]) => (i ? { x, y, t, i: 1 } : { x, y, t })) };
   if (floor) out.floor = floor;
   return out;
 }
@@ -38,7 +44,7 @@ export function unpackSnap(p, prevGrid, prevCfg, prevFloor) {
 // direction (idle after MAX_STARVE ticks, e.g. dropped guest); `cursor` (the ack) counts guest ticks consumed whether or not their data arrived.
 export function createInbox() {
   const q = new Map();
-  let cursor = null, newest = -1, held = IDLE, bomb = false, starve = 0;
+  let cursor = null, newest = -1, held = IDLE, bomb = false, act = false, starve = 0;
   return {
     get ack() { return cursor; },
     push(n, d) {
@@ -50,8 +56,8 @@ export function createInbox() {
         q.clear();
       }
       d.slice(0, MAX_BATCH).forEach((c, i) => {
-        c = Number.isInteger(c) && c >= 0 && c < 18 ? c : IDLE;
-        if (n + i < cursor) bomb ||= c >= 9;
+        c = Number.isInteger(c) && c >= 0 && c < 36 ? c : IDLE;
+        if (n + i < cursor) { bomb ||= hasBomb(c); act ||= c >= 18; }
         else q.set(n + i, c);
       });
       newest = Math.max(newest, last);
@@ -60,7 +66,7 @@ export function createInbox() {
       if (cursor === null) return unpackInput(IDLE);
       if (newest - cursor > MAX_AHEAD) {
         const to = newest - LEAD;
-        for (const [k, c] of q) if (k < to) { bomb ||= c >= 9; q.delete(k); }
+        for (const [k, c] of q) if (k < to) { bomb ||= hasBomb(c); act ||= c >= 18; q.delete(k); }
         cursor = to;
       }
       const c = q.get(cursor);
@@ -68,8 +74,9 @@ export function createInbox() {
       if (c !== undefined) { held = c % 9; starve = 0; }
       else if (++starve > MAX_STARVE) held = IDLE;
       const inp = unpackInput(held);
-      inp.bomb = (c >= 9) || bomb;
-      bomb = false;
+      inp.bomb = hasBomb(c) || bomb;
+      if (c >= 18 || act) inp.act = true;
+      bomb = act = false;
       return inp;
     },
   };
@@ -87,10 +94,11 @@ export function createGuestNet(me, delay = 100) {
   function apply(inp, live) {
     if (!pred?.alive) return;
     movePlayer(w, pred, inp.dx, inp.dy);
-    if (inp.bomb) {
+    if (inp.bomb && !canLift(w, pred)) {
       const b = placeBomb(w, pred);
-      if (b && live) ghosts.push({ x: b.x, y: b.y, at: L });
+      if (b && live) ghosts.push({ x: b.x, y: b.y, at: L, ty: b.ty });
     }
+    if (inp.act) useAbility(w, pred);
   }
 
   function reset() {
@@ -170,11 +178,12 @@ export function createGuestNet(me, delay = 100) {
       }
       if (pred && players[me]) {
         players[me] = { ...players[me], x: pred.x + ex, y: pred.y + ey, face: pred.face, walk: pred.walk };
+        for (const k of PREDICTED) if (pred[k] !== undefined) players[me][k] = pred[k];
       }
       ghosts = ghosts.filter((g) => L - g.at < GHOST_TTL && !a.bombs.some((b) => b.x === g.x && b.y === g.y));
       const ahead = Math.max(0, rt - buf[0].ms) / TICK_MS;
       const bombs = a.bombs.map((b) => (b.dx || b.dy ? { ...b, sc: b.sc + ahead } : b)).concat(
-        ghosts.map((g) => ({ x: g.x, y: g.y, owner: me, t: Math.max(1, FUSE - (L - g.at)), range: 1, pass: [] })),
+        ghosts.map((g) => (g.ty ? { x: g.x, y: g.y, owner: me, t: Math.max(1, FUSE - (L - g.at)), range: 1, pass: [], ty: g.ty } : { x: g.x, y: g.y, owner: me, t: Math.max(1, FUSE - (L - g.at)), range: 1, pass: [] })),
       );
       return { ...a, players, bombs };
     },

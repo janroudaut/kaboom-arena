@@ -1,6 +1,6 @@
-import { W, H, T, SUDDEN, ICE, CONV, SPIKE, TELE, POTATO_TICKS, HILL_GOAL } from "./sim.js";
+import { W, H, T, SUDDEN, ICE, CONV, SPIKE, TELE, POTATO_TICKS, HILL_GOAL, B_CLUSTER, B_MINE, B_ICE, B_MINI, FLY_TICKS, MINE_DELAY } from "./sim.js";
 import { placeBubble } from "./director.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, humansOf, foeLook, FLOORC, EVENT_INFO, spikePhase, eventText, modeText, BOMB_INFO, ICE_FLAME, mineSeen, abilityInfo, heldBombs } from "./look.js";
 
 export const CW = W * T, CH = H * T + 16;
 export const NAMES = ["White", "Black", "Red", "Blue"];
@@ -174,6 +174,38 @@ export const ICONS = [
     c.fillStyle = "#111"; c.fillRect(4.5, 4.5, 2, 2.5); c.fillRect(7.5, 4.5, 2, 2.5); c.fillRect(6.6, 8, 0.8, 1);
     c.fillStyle = "#4a1f5e"; c.fillRect(6, 10, 0.8, 1); c.fillRect(7.8, 10, 0.8, 1);
   }],
+  ["#2fb6a8", (c) => {
+    c.fillStyle = "#fff"; c.fillRect(4, 3, 7, 7); c.fillRect(3, 6, 1, 3); c.fillRect(11, 5, 1, 3);
+    c.fillStyle = "#2fb6a8"; for (const x of [6, 8, 10]) c.fillRect(x, 3, 1, 3);
+    c.fillStyle = "#e8453c"; c.fillRect(4, 10, 7, 2);
+    c.fillStyle = "#ffd23c"; c.fillRect(4, 11, 7, 1);
+  }],
+  ["#d6458a", (c) => {
+    c.fillStyle = "#fff"; c.fillRect(5, 3, 7, 7); c.fillRect(4, 4, 1, 5);
+    c.fillStyle = "#d6458a"; for (const x of [6, 8, 10]) c.fillRect(x, 5, 1, 2);
+    c.fillStyle = "#c9c9d6"; c.fillRect(5, 9, 7, 1);
+    c.fillStyle = "#fff"; c.fillRect(1, 4, 3, 1); c.fillRect(0, 7, 4, 1); c.fillRect(2, 10, 3, 1);
+    c.fillRect(5, 10, 6, 2);
+  }],
+  ["#c98a10", (c) => {
+    disc(c, 7, 8, 3.8, "#111");
+    c.fillStyle = "#ffd23c"; for (const [x, y] of [[4, 6], [9, 5], [6, 11], [10, 9]]) c.fillRect(x, y, 2, 2);
+    c.fillStyle = "#fff"; c.fillRect(4, 3, 1, 1); c.fillRect(7, 2, 1, 1); c.fillRect(10, 3, 1, 1);
+    c.fillStyle = "#fff9"; c.fillRect(5.2, 6.2, 1.2, 1.2);
+  }],
+  ["#3f6b3a", (c) => {
+    c.fillStyle = "#111"; c.fillRect(3, 7, 8, 4); c.fillRect(4, 6, 6, 6);
+    c.fillStyle = "#2a2a38"; c.fillRect(4, 7, 6, 1);
+    c.fillStyle = "#ff3b30"; c.fillRect(6, 4, 2, 2);
+    c.fillStyle = "#fff"; c.fillRect(6, 4, 1, 1);
+    c.fillStyle = "#9be36a"; for (const [x, y] of [[2, 6], [11, 6], [2, 11], [11, 11]]) c.fillRect(x, y, 1, 1);
+  }],
+  ["#2f8fd8", (c) => {
+    disc(c, 7, 8, 4, "#bdeeff");
+    disc(c, 6, 7, 2.2, "#fff");
+    c.fillStyle = "#fff"; c.fillRect(7, 1, 1, 3); c.fillRect(1, 8, 3, 1); c.fillRect(10, 8, 3, 1); c.fillRect(6, 11, 3, 1);
+    c.fillStyle = "#2f8fd8"; c.fillRect(6, 8, 3, 1); c.fillRect(7, 7, 1, 3);
+  }],
 ].map(([bg, fn]) => sprite(14, 14, (c) => {
   c.fillStyle = "#fff"; c.fillRect(1, 0, 12, 14); c.fillRect(0, 1, 14, 12);
   c.fillStyle = bg; c.fillRect(1, 1, 12, 12);
@@ -182,24 +214,72 @@ export const ICONS = [
   fn(c);
 }));
 
-function bomb(c, b, grid, remote, tick) {
-  const [bx, by] = bombPos(b, grid);
-  const x = bx * T + 8, y = by * T + TOP + 9;
+function bomb(c, b, s, me) {
+  const [bx, by] = bombPos(b, s.grid), remote = s.players[b.owner]?.remote, tick = s.tick, ty = b.ty | 0;
+  let x = bx * T + 8, y = by * T + TOP + 9, up = 0;
+  if (b.fa > 0) {
+    const k = 1 - b.fa / FLY_TICKS;
+    x = (b.fx + (b.x - b.fx) * k) * T + 8;
+    y = (b.fy + (b.y - b.fy) * k) * T + TOP + 9;
+    up = Math.sin(k * Math.PI) * 18;
+  }
+  if (ty === B_MINE) return mine(c, b, x, y, tick, mineSeen(s, b, me));
+  if (ty === B_MINI) {
+    const hot = b.t % 8 < 4;
+    c.fillStyle = "#0004"; c.fillRect(x - 3, y + 4, 6, 2);
+    disc(c, x, y + 1, 3.4, hot ? "#ffd23c" : BOMB_INFO[B_MINI].col);
+    disc(c, x - 1, y, 1.2, "#fff9");
+    return;
+  }
   const r = 5.5 + Math.sin(b.t / 5) * (b.t < 40 ? 1.4 : 0.7);
   c.fillStyle = "#0004"; c.fillRect(x - 5, y + 4, 10, 3);
+  y -= up;
   if (remote) {
     c.strokeStyle = `rgba(255,70,60,${0.45 + 0.4 * Math.sin(tick / 4)})`;
     c.lineWidth = 2;
     c.beginPath(); c.arc(x, y, r + 2 + Math.sin(tick / 4), 0, 7); c.stroke();
   }
-  disc(c, x, y, r, remote ? "#4a0c10" : "#14141c");
-  disc(c, x - 1.5, y - 1.5, r - 2, remote ? "#8a1c22" : "#2a2a38");
+  const ice = ty === B_ICE;
+  disc(c, x, y, r, ice ? "#2a6f9a" : remote ? "#4a0c10" : "#14141c");
+  disc(c, x - 1.5, y - 1.5, r - 2, ice ? "#6cc4f2" : remote ? "#8a1c22" : "#2a2a38");
   disc(c, x - 2.5, y - 2.5, 1.6, "#ffffff90");
+  if (ty === B_CLUSTER) {
+    c.strokeStyle = BOMB_INFO[B_CLUSTER].col; c.lineWidth = 1;
+    c.beginPath(); c.arc(x, y, r + 0.5, 0, 7); c.stroke();
+    c.fillStyle = BOMB_INFO[B_CLUSTER].col;
+    for (const [dx, dy] of [[-4, 1], [3, 2], [0, 4], [-3, -2]]) c.fillRect(x + dx - 1, y + dy - 1, 2, 2);
+  } else if (ice) {
+    c.fillStyle = "#fff";
+    c.fillRect(x - 1, y + r - 1, 2, 3); c.fillRect(x - r - 1, y, 3, 1); c.fillRect(x + r - 1, y, 3, 1); c.fillRect(x - 1, y + r + 1, 1, 1);
+  }
   c.fillStyle = "#b5703a"; c.fillRect(x + 2, y - r - 1, 2, 3);
-  c.fillStyle = b.t % 8 < 4 ? "#ffd23c" : "#ff7a2a";
+  c.fillStyle = ice ? (b.t % 8 < 4 ? "#ffffff" : "#7ad0ff") : b.t % 8 < 4 ? "#ffd23c" : "#ff7a2a";
   c.fillRect(x + 2, y - r - 3, 3, 3);
   c.fillStyle = "#fff"; c.fillRect(x + 3, y - r - 2, 1, 1);
 }
+
+// Mines: a flat disc with a blinking LED for the owner's side, a barely-there ring for rivals, loud once triggered.
+function mine(c, b, x, y, tick, seen) {
+  const hot = b.t <= MINE_DELAY;
+  if (hot) {
+    const on = view.still || b.t % 6 < 3;
+    c.strokeStyle = on ? "#ff3b30" : "#ffd23c"; c.lineWidth = 2;
+    c.beginPath(); c.arc(x, y + 1, 7, 0, 7); c.stroke();
+  } else if (!seen) {
+    c.strokeStyle = "rgba(255,255,255,.13)"; c.lineWidth = 1;
+    c.beginPath(); c.arc(x, y + 1, 5, 0, 7); c.stroke();
+    return;
+  }
+  c.fillStyle = "#0004"; c.fillRect(x - 5, y + 3, 10, 3);
+  disc(c, x, y + 1, 5, "#1b2a1b");
+  disc(c, x, y + 1, 3.4, "#2c4a2c");
+  c.fillStyle = BOMB_INFO[B_MINE].col;
+  for (const [dx, dy] of [[-6, 0], [5, 0], [-1, -6], [-1, 5]]) c.fillRect(x + dx, y + 1 + dy, 2, 2);
+  c.fillStyle = hot || view.still || tick % 40 < 8 ? "#ff3b30" : "#5a1410";
+  c.fillRect(x - 1, y, 2, 2);
+}
+
+const FIRE_FLAME = ["#e8453c", "#ff9a2a", "#ffe066", "#fff8d0"];
 
 function flames(c, fs) {
   const at = new Map(fs.map((f) => [f.y * W + f.x, f]));
@@ -216,10 +296,11 @@ function flames(c, fs) {
       if (has(-1, 0)) c.fillRect(px, y0, x0 - px, y1 - y0);
       if (has(1, 0)) c.fillRect(x1, y0, px + T - x1, y1 - y0);
     };
-    layer("#e8453c", 0);
-    layer("#ff9a2a", 1);
-    layer("#ffe066", 3);
-    if (f.t > 20) layer("#fff8d0", 5);
+    const col = f.i ? ICE_FLAME : FIRE_FLAME;
+    layer(col[0], 0);
+    layer(col[1], 1);
+    layer(col[2], 3);
+    if (f.t > 20) layer(col[3], 5);
   }
 }
 
@@ -250,7 +331,7 @@ function player(c, p, v, team, tick, foe) {
     c.stroke();
   }
   if (p.curse) disc(c, x, y - 3, 11, `rgba(190,60,255,${0.22 + 0.12 * Math.sin(tick / 3)})`);
-  const lf = moving ? step : 0;
+  const lf = moving && !p.fz ? step : 0;
   c.fillStyle = "#222"; c.fillRect(x - 5, y + 4 + (lf > 0 ? 0 : 1), 4, 3); c.fillRect(x + 1, y + 4 + (lf > 0 ? 1 : 0), 4, 3);
   c.fillStyle = suit; c.fillRect(x - 5, y - 1 - bob, 10, 6);
   c.fillStyle = dark; c.fillRect(x - 5, y + 3 - bob, 10, 2);
@@ -270,6 +351,14 @@ function player(c, p, v, team, tick, foe) {
   c.fillStyle = "#fff"; c.fillRect(x, y - 12 - bob, 1, 1);
   if (p.curse) c.drawImage(ICONS[7], x - 4.5, y - 27 + Math.round(Math.sin(tick / 5)), 9, 9);
   if (view.cb && !foe) tag(c, p.id + 1, x, y - 16 - bob);
+  if (p.fz > 0) {
+    const thaw = !view.still && p.fz < 30 && p.fz % 6 < 3;
+    c.fillStyle = thaw ? "rgba(190,235,255,.35)" : "rgba(150,215,255,.6)";
+    c.fillRect(x - 8, y - 14 - bob, 16, 23);
+    c.fillStyle = "#e8fbff";
+    c.fillRect(x - 8, y - 14 - bob, 16, 1); c.fillRect(x - 8, y - 14 - bob, 1, 23); c.fillRect(x - 3, y - 11 - bob, 1, 6); c.fillRect(x + 2, y + 1 - bob, 1, 5);
+    c.fillRect(x - 2, y - 6 - bob, 3, 1); c.fillRect(x + 3, y - 3 - bob, 3, 1);
+  }
   if (p.shield > 0) {
     c.beginPath(); c.ellipse(x, y - 3, 11, 13, 0, 0, 7);
     c.fillStyle = p.shield < 60 && p.shield % 10 < 5 ? "rgba(90,220,255,.1)" : "rgba(90,220,255,.28)";
@@ -370,6 +459,54 @@ function potatoMark(c, s) {
   c.fillStyle = "#000"; c.fillRect(x - 9, y + 9, 18, 4);
   c.fillStyle = f > 0.5 ? "#7bd34a" : f > 0.25 ? "#ffb02a" : flash ? "#fff" : "#ff3b30";
   c.fillRect(x - 8, y + 10, Math.round(16 * f), 2);
+}
+
+// Afterimages behind a dashing player.
+function trail(c, p) {
+  const pal = palette(), [dx, dy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][p.face];
+  c.fillStyle = pal.suit[p.id];
+  for (let k = 1; k <= 3; k++) {
+    c.globalAlpha = 0.6 - k * 0.15;
+    c.fillRect(Math.round(p.x) - 5 - dx * k * 5, Math.round(p.y) + TOP - 6 - dy * k * 5, 10, 11);
+  }
+  c.globalAlpha = 1;
+}
+
+// Bottom strip: ability ring (seconds left, or its initial when ready), held special bombs, glove and punch. Players are listed on shared screens.
+function dock(c, g) {
+  const s = g.s, solo = g.me >= 0;
+  const list = solo ? [s.players[g.me]] : s.players.slice(0, humansOf(s));
+  const who = list.filter((p) => p?.alive);
+  if (!who.length) return;
+  const w = solo ? 112 : 40, x0 = Math.round((CW - who.length * w) / 2), y = CH - 14, suit = palette().suit;
+  c.fillStyle = "#000b"; c.fillRect(x0 - 2, y, who.length * w + 4, 12);
+  c.font = "bold 7px monospace"; c.textAlign = "center";
+  who.forEach((p, k) => {
+    let x = x0 + k * w + 2;
+    if (!solo) { c.fillStyle = suit[p.id]; c.fillRect(x - 1, y + 3, 2, 6); x += 3; }
+    const a = abilityInfo(p);
+    if (a) {
+      c.lineWidth = 2; c.strokeStyle = "#fff3";
+      c.beginPath(); c.arc(x + 6, y + 6, 4.5, 0, 7); c.stroke();
+      c.strokeStyle = a.ready ? "#ffd23c" : suit[p.id];
+      c.beginPath(); c.arc(x + 6, y + 6, 4.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * a.frac); c.stroke();
+      c.fillStyle = a.ready ? "#ffd23c" : "#fff";
+      c.fillText(a.ready ? a.name[0] : a.secs, x + 6, y + 9);
+      x += 14;
+      if (solo) { c.textAlign = "left"; c.fillStyle = a.ready ? "#ffd23c" : "#fffa"; c.fillText(a.name, x, y + 9); c.textAlign = "center"; x += a.name.length * 4.3 + 4; }
+      else x += 1;
+    }
+    const h = heldBombs(p);
+    if (h) {
+      c.drawImage(ICONS[9 + h.ty], x, y + 1, 10, 10);
+      c.fillStyle = "#fff"; c.textAlign = "left"; c.fillText(`x${h.n}`, x + 11, y + 9); c.textAlign = "center";
+      x += 22;
+    }
+    if (solo) {
+      if (p.gl) { c.drawImage(ICONS[8], x, y + 2, 9, 9); x += 10; }
+      if (p.pn) c.drawImage(ICONS[9], x, y + 2, 9, 9);
+    }
+  });
 }
 
 function isBlock(g, x, y) { return x >= 0 && y >= 0 && x < W && y < H && g[y * W + x] !== 0; }
@@ -498,11 +635,14 @@ export function draw(c, g) {
     c.drawImage(icon, x, y);
   }
 
-  for (const b of s.bombs) bomb(c, b, s.grid, s.players[b.owner]?.remote, s.tick);
+  for (const b of s.bombs) bomb(c, b, s, g.me);
   flames(c, s.flames);
 
   for (const p of [...s.players].filter((q) => q.alive).sort((a, b) => a.y - b.y)) {
+    if (p.dash > 0) trail(c, p);
+    if (p.inv > 0) c.globalAlpha = g.me < 0 || p.id === g.me || (tm && tm[p.id] === tm[g.me]) ? (!view.still && p.inv < 30 && p.inv % 6 < 3 ? 0.8 : 0.4) : 0.1;
     player(c, p, p, tm ? tm[p.id] : undefined, s.tick, p.id >= nh);
+    c.globalAlpha = 1;
   }
   if (s.potato) potatoMark(c, s);
   if (s.event) eventOver(c, s);
@@ -510,6 +650,7 @@ export function draw(c, g) {
   c.fillStyle = "#0e0e16"; c.fillRect(0, 0, CW, TOP);
   c.fillStyle = "#2a2a3a"; c.fillRect(0, TOP - 1, CW, 1);
   hud(c, g);
+  if (s.cfg?.bombs || s.cfg?.abilities) dock(c, g);
 
   if (g.banner) {
     c.fillStyle = "#000b"; c.fillRect(0, CH / 2 - 16, CW, 32);

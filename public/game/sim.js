@@ -6,6 +6,30 @@ export const REMOTE_FUSE = 360, SHIELD_TICKS = 300, CURSE_TICKS = 600, KICK_EVER
 export const BOMB_UP = 0, RANGE_UP = 1, SPEED_UP = 2, KICK = 3, REMOTE = 4, PASS = 5, SHIELD = 6, SKULL = 7;
 export const CURSES = ["slow", "fast", "reverse", "nobomb", "auto"];
 const WEIGHTS = [20, 20, 15, 10, 8, 5, 7, 8];
+// Opt-in `bombs` items: glove/punch move bombs, the last three load the next bombs with a type (b.ty = item - 9).
+export const GLOVE = 8, PUNCH = 9, CLUSTER = 10, MINE = 11, FROST = 12;
+export const B_CLUSTER = 1, B_MINE = 2, B_ICE = 3, B_MINI = 4;
+const WEIGHTS_X = [...WEIGHTS, 5, 5, 6, 6, 6];
+const SPECIAL_COUNT = [0, 2, 3, 2];
+export const MINE_FUSE = 900, MINE_DELAY = 30, CLUSTER_DELAY = 40, FREEZE_TICKS = 120, FLY_TICKS = 14, THROW_TILES = 3, PUNCH_TILES = 2;
+export const RING = [[3, 0], [0, 3], [-3, 0], [0, -3], [2, 2], [-2, 2], [2, -2], [-2, -2]];
+export const DASH_TICKS = 12, DASH_SPEED = 4, BLINK_TILES = 3, AEGIS_TICKS = 60, VEIL_TICKS = 240, CRACK_TILES = 4, OVERLOAD_T = 24;
+export const SWAP_TILES = 5, SWEEP_TILES = 2, RISE_FUSE = 75;
+// Index = player.ab. [key, name, cooldown in ticks, what it does]
+export const ABILITIES = [
+  null,
+  ["dash", "Dash", 240, "sprint 3 tiles forward"],
+  ["blink", "Blink", 420, "jump up to 3 tiles forward, over anything"],
+  ["aegis", "Aegis", 1500, "shield for 1 s and thaw"],
+  ["veil", "Vanish", 600, "nearly invisible for 4 s"],
+  ["crack", "Crack", 360, "break the first brick ahead"],
+  ["overload", "Overload", 480, "your bombs go off in 0.4 s"],
+  ["swap", "Switcheroo", 600, "trade places with a rival ahead"],
+  ["sweep", "Sweep", 300, "bat adjacent bombs 2 tiles away"],
+  ["rise", "Rise", 420, "drop a free, bigger, quick bomb"],
+];
+export const ABILITY_ID = Object.fromEntries(ABILITIES.map((a, i) => [a?.[0], i]));
+export const SLOT_ABILITY = [1, 4, 6, 2];
 const LAYOUTS = {
   classic: (x, y) => x % 2 === 0 && y % 2 === 0,
   open: () => false,
@@ -43,10 +67,11 @@ function rng(seed) {
 // The sim's own stream lives in state (s.rs) so that step stays pure and snapshots carry it.
 const roll = (s) => mix((s.rs = (s.rs + 0x6d2b79f5) | 0));
 
-const pickItem = (rand, powerups) => {
+const pickItem = (rand, powerups, bombs) => {
   if (!powerups) return Math.floor(rand() * 3);
-  let r = rand() * WEIGHTS.reduce((a, b) => a + b);
-  return WEIGHTS.findIndex((w) => (r -= w) < 0);
+  const w = bombs ? WEIGHTS_X : WEIGHTS;
+  let r = rand() * w.reduce((a, b) => a + b);
+  return w.findIndex((x) => (r -= x) < 0);
 };
 
 const pickN = (r, list, n) => {
@@ -82,7 +107,11 @@ function makeFloor(grid, kind, spots, r) {
 }
 
 // Opt-in extras (all resolved into cfg only when non-default, so the plain cfg is unchanged):
-// tiles "few"|"many" -> s.floor; chaos true -> s.event/s.evAt; mode "hill"|"potato"|"survival" -> s.hill/s.potato/s.survival.
+// tiles "few"|"many" -> s.floor; chaos true -> s.event/s.evAt; mode "hill"|"potato"|"survival" -> s.hill/s.potato/s.survival;
+// bombs true -> special bombs, glove, punch (player.sp/spn/fz/gl/pn, bomb.ty); abilities true or [ability keys by player] -> player.ab/cd/inv/dash.
+const EXTRA_BOMBS = { sp: 0, spn: 0, fz: 0, gl: false, pn: false };
+const EXTRA_ABIL = { cd: 0, inv: 0, dash: 0 };
+
 export function newGame(nPlayers, seed = Date.now(), opts = {}) {
   const cfg = {
     layout: LAYOUTS[opts.layout] ? opts.layout : "classic",
@@ -96,6 +125,8 @@ export function newGame(nPlayers, seed = Date.now(), opts = {}) {
   const tiles = TILES[opts.tiles] ? opts.tiles : null;
   if (tiles) cfg.tiles = tiles;
   if (opts.chaos) cfg.chaos = true;
+  if (opts.bombs) cfg.bombs = true;
+  if (opts.abilities) cfg.abilities = true;
   if (mode !== "classic") { cfg.mode = mode; cfg.suddenDeath = false; }
   if (mode === "survival") {
     cfg.humans = nPlayers;
@@ -115,15 +146,21 @@ export function newGame(nPlayers, seed = Date.now(), opts = {}) {
       if (x === 0 || y === 0 || x === W - 1 || y === H - 1 || LAYOUTS[cfg.layout](x, y)) grid[i] = HARD;
       else if (!nearSpawn(x, y) && rand() < cfg.softDensity) {
         grid[i] = SOFT;
-        if (rand() < 0.3) hidden[i] = pickItem(rand, cfg.powerups);
+        if (rand() < 0.3) hidden[i] = pickItem(rand, cfg.powerups, cfg.bombs);
       }
     }
   }
-  const mk = (id, x, y) => ({
-    id, x: x * T + T / 2, y: y * T + T / 2, alive: true,
-    bombs: 1, range: 2, speed: 1, face: 2, walk: 0,
-    kick: false, remote: false, pass: false, shield: 0, curse: null,
-  });
+  const abil = Array.isArray(opts.abilities) ? opts.abilities.map((k) => ABILITY_ID[k] | 0) : SLOT_ABILITY;
+  const mk = (id, x, y) => {
+    const p = {
+      id, x: x * T + T / 2, y: y * T + T / 2, alive: true,
+      bombs: 1, range: 2, speed: 1, face: 2, walk: 0,
+      kick: false, remote: false, pass: false, shield: 0, curse: null,
+    };
+    if (cfg.bombs) Object.assign(p, EXTRA_BOMBS);
+    if (cfg.abilities) Object.assign(p, EXTRA_ABIL, { ab: id < nPlayers ? abil[id % abil.length] | 0 : 0 });
+    return p;
+  };
   const players = spawns.map(([x, y], id) => mk(id, x, y));
   const s = { tick: 0, grid, hidden, bombs: [], flames: [], items: [], players, sd: 0, end: -1, done: false, winner: -1, winnerTeam: -1, cfg, rs: Math.floor(rand() * 2 ** 31) };
   if (tiles) s.floor = makeFloor(grid, tiles, [...spawns, ...foes], rng(seed ^ 0x5bd1e995));
@@ -154,7 +191,7 @@ function overlaps(p, tx, ty) {
 function solid(s, tx, ty, p) {
   if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
   if (s.grid[ty * W + tx] !== EMPTY) return true;
-  return !p.pass && s.bombs.some((b) => b.x === tx && b.y === ty && !b.pass.includes(p.id));
+  return !p.pass && s.bombs.some((b) => b.x === tx && b.y === ty && b.ty !== B_MINE && b.ty !== B_MINI && !b.pass.includes(p.id));
 }
 
 function blocked(s, p, x, y) {
@@ -251,17 +288,23 @@ function closeIn(s) {
 
 function explode(s, first) {
   const queue = [first];
-  const burned = new Set(), ff = s.cfg.friendlyFire || !s.cfg.teams;
+  const burned = new Set(), ff = s.cfg.friendlyFire || !s.cfg.teams, rings = [];
   while (queue.length) {
     const b = queue.pop();
     if (!s.bombs.includes(b)) continue;
     s.bombs.splice(s.bombs.indexOf(b), 1);
+    if (b.ty === B_CLUSTER) rings.push(b);
     for (const [x, y] of blast(s, b.x, b.y, b.range)) {
       burned.add(y * W + x);
-      s.flames.push(ff ? { x, y, t: FLAME } : { x, y, t: FLAME, o: b.owner });
+      const f = ff ? { x, y, t: FLAME } : { x, y, t: FLAME, o: b.owner };
+      if (b.ty === B_ICE) f.i = 1;
+      s.flames.push(f);
       const other = s.bombs.find((o) => o.x === x && o.y === y);
       if (other) queue.push(other);
     }
+  }
+  for (const c of rings) {
+    for (const [x, y] of ringOf(s, c)) if (!s.bombs.some((o) => o.x === x && o.y === y)) s.bombs.push({ x, y, owner: c.owner, t: CLUSTER_DELAY, range: 1, pass: [], ty: B_MINI });
   }
   s.items = s.items.filter((it) => !burned.has(it.y * W + it.x));
   for (const i of burned) {
@@ -271,8 +314,30 @@ function explode(s, first) {
   }
 }
 
+// Tiles where a cluster bomb drops its mini-blasts (walkable, in the arena).
+export function ringOf(s, b) {
+  const out = [];
+  for (const [dx, dy] of RING) {
+    const x = b.x + dx, y = b.y + dy;
+    if (inArena(x, y) && s.grid[y * W + x] === EMPTY) out.push([x, y]);
+  }
+  return out;
+}
+
 // Pure in (grid, bombs, floor, event, p): the guest replays it for its own player. Ice momentum lives in p.vx/p.vy.
+// The per-tick timers of the opt-in extras (cooldown, vanish, freeze, dash) run here so the replay counts them like the host.
 export function movePlayer(s, p, dx, dy) {
+  if (p.cd > 0) p.cd--;
+  if (p.inv > 0) p.inv--;
+  if (p.fz > 0) { p.fz--; p.vx = p.vy = 0; return; }
+  if (p.dash > 0) {
+    p.dash--;
+    const bx = p.x, by = p.y;
+    move(s, p, DIRS[p.face][0], DIRS[p.face][1], DASH_SPEED);
+    if (p.x !== bx || p.y !== by) p.walk++;
+    else p.dash = 0;
+    return;
+  }
   if (curseIs(p, "reverse")) { dx = -dx; dy = -dy; }
   let mx = dx, my = dx ? 0 : dy;
   const under = () => (s.floor ? s.floor[tileOf(p.y) * W + tileOf(p.x)] : 0);
@@ -293,25 +358,30 @@ export function movePlayer(s, p, dx, dy) {
 
 export function placeBomb(s, p) {
   const tx = tileOf(p.x), ty = tileOf(p.y);
-  if (curseIs(p, "nobomb") || s.bombs.filter((b) => b.owner === p.id).length >= p.bombs || s.bombs.some((b) => b.x === tx && b.y === ty)) return null;
+  if (curseIs(p, "nobomb") || s.bombs.filter((b) => b.owner === p.id && b.ty !== B_MINE && b.ty !== B_MINI).length >= p.bombs || s.bombs.some((b) => b.x === tx && b.y === ty)) return null;
   const b = {
     x: tx, y: ty, owner: p.id, t: p.remote ? REMOTE_FUSE : FUSE, range: p.range,
     pass: s.players.filter((q) => q.alive && overlaps(q, tx, ty)).map((q) => q.id),
   };
+  if (p.spn > 0) {
+    b.ty = p.sp;
+    if (--p.spn === 0) p.sp = 0;
+    if (b.ty === B_MINE) { b.t = MINE_FUSE; b.pass = []; }
+  }
   s.bombs.push(b);
   return b;
 }
 
 // Remote detonator: the oldest bomb of p goes off this tick. Returns false if p has none.
 export function detonate(s, p) {
-  const b = s.bombs.find((q) => q.owner === p.id);
+  const b = s.bombs.find((q) => q.owner === p.id && q.ty !== B_MINE && q.ty !== B_MINI);
   if (b) b.t = Math.min(b.t, 1);
   return !!b;
 }
 
 function kick(s, p, dx, dy) {
   const probe = { x: p.x + dx, y: p.y + dy };
-  const b = s.bombs.find((q) => !q.dx && !q.dy && !q.pass.includes(p.id) && overlaps(probe, q.x, q.y));
+  const b = s.bombs.find((q) => !q.dx && !q.dy && !q.pass.includes(p.id) && q.ty !== B_MINE && q.ty !== B_MINI && overlaps(probe, q.x, q.y));
   if (b && !stopsBomb(s, b.x + dx, b.y + dy)) { b.dx = dx; b.dy = dy; b.sc = 0; }
 }
 
@@ -336,9 +406,142 @@ function pickup(s, p, type) {
   else if (type === PASS) p.pass = true;
   else if (type === SHIELD) p.shield = SHIELD_TICKS;
   else if (type === SKULL) p.curse = { type: CURSES[Math.floor(roll(s) * CURSES.length)], t: CURSE_TICKS };
+  else if (type === GLOVE) p.gl = true;
+  else if (type === PUNCH) p.pn = true;
+  else if (type >= CLUSTER && type <= FROST) {
+    const ty = type - 9;
+    p.spn = p.sp === ty ? Math.min(p.spn + SPECIAL_COUNT[ty], 6) : SPECIAL_COUNT[ty];
+    p.sp = ty;
+  }
 }
 
 const teamOf = (s, id) => s.cfg.teams?.[id] ?? id;
+
+const movable = (b) => b.ty !== B_MINE && b.ty !== B_MINI;
+
+// What the bomb key does with a glove (bomb under p, thrown THROW_TILES) or punch (bomb right ahead, hit PUNCH_TILES); null = place a bomb.
+export function lift(s, p) {
+  const tx = tileOf(p.x), ty = tileOf(p.y), [dx, dy] = DIRS[p.face];
+  if (p.gl) {
+    const b = s.bombs.find((q) => q.x === tx && q.y === ty && movable(q));
+    if (b) return { b, n: THROW_TILES, dx, dy };
+  }
+  if (p.pn) {
+    const b = s.bombs.find((q) => q.x === tx + dx && q.y === ty + dy && movable(q));
+    if (b) return { b, n: PUNCH_TILES, dx, dy };
+  }
+  return null;
+}
+export const canLift = (s, p) => !!(p.gl || p.pn) && !!lift(s, p);
+
+// Instant arc: the bomb lands on the farthest free tile up to n away (over anything), fa/fx/fy only drive the drawn arc.
+export function landing(s, b, dx, dy, n) {
+  for (let d = n; d >= 1; d--) {
+    const x = b.x + dx * d, y = b.y + dy * d;
+    if (inArena(x, y) && s.grid[y * W + x] === EMPTY && !s.bombs.some((o) => o.x === x && o.y === y)) return d;
+  }
+  return 0;
+}
+
+function fly(s, b, dx, dy, n) {
+  const d = landing(s, b, dx, dy, n);
+  if (!d) return false;
+  const x = b.x + dx * d, y = b.y + dy * d;
+  b.fx = b.x; b.fy = b.y; b.fa = FLY_TICKS;
+  b.x = x; b.y = y; b.dx = b.dy = 0;
+  b.pass = s.players.filter((q) => q.alive && overlaps(q, x, y)).map((q) => q.id);
+  if (s.flames.some((f) => f.x === x && f.y === y)) b.t = 1;
+  return true;
+}
+
+const own = (p) => (b) => b.owner === p.id;
+const enemyOf = (s, p) => (q) => q.alive && !q.dormant && q.id !== p.id && teamOf(s, q.id) !== teamOf(s, p.id);
+
+export function blinkTile(s, p) {
+  const tx = tileOf(p.x), ty = tileOf(p.y), [dx, dy] = DIRS[p.face];
+  for (let d = BLINK_TILES; d >= 1; d--) {
+    const x = tx + dx * d, y = ty + dy * d;
+    if (inArena(x, y) && !solid(s, x, y, p)) return [x, y];
+  }
+  return null;
+}
+
+export function crackAt(s, p) {
+  const tx = tileOf(p.x), ty = tileOf(p.y), [dx, dy] = DIRS[p.face];
+  for (let d = 1; d <= CRACK_TILES; d++) {
+    const x = tx + dx * d, y = ty + dy * d;
+    if (!inArena(x, y) || s.grid[y * W + x] === HARD) return -1;
+    if (s.grid[y * W + x] === SOFT) return y * W + x;
+  }
+  return -1;
+}
+
+export function swapTarget(s, p) {
+  const tx = tileOf(p.x), ty = tileOf(p.y), [dx, dy] = DIRS[p.face], foe = enemyOf(s, p);
+  for (let d = 1; d <= SWAP_TILES; d++) {
+    const x = tx + dx * d, y = ty + dy * d;
+    if (!inArena(x, y) || s.grid[y * W + x] !== EMPTY) return null;
+    const q = s.players.find((o) => foe(o) && tileOf(o.x) === x && tileOf(o.y) === y);
+    if (q) return q;
+  }
+  return null;
+}
+
+export const sweepable = (s, p) => DIRS.map(([dx, dy]) => [s.bombs.find((q) => q.x === tileOf(p.x) + dx && q.y === tileOf(p.y) + dy && movable(q)), dx, dy]).filter(([b]) => b);
+
+// Second action button. Everything that only touches p runs on the guest too (host = false) so the prediction and the cooldown stay exact;
+// effects on the world (bricks, other bombs or players) are host-only and reach the guest through snapshots.
+export function useAbility(s, p, host = false) {
+  const a = ABILITIES[p.ab];
+  if (!a || p.cd > 0 || (p.fz > 0 && a[0] !== "aegis")) return false;
+  const tx = tileOf(p.x), ty = tileOf(p.y);
+  switch (a[0]) {
+    case "dash": p.dash = DASH_TICKS; break;
+    case "blink": {
+      const t = blinkTile(s, p);
+      if (!t) return false;
+      p.x = t[0] * T + T / 2; p.y = t[1] * T + T / 2; p.vx = p.vy = 0;
+      break;
+    }
+    case "aegis": p.shield = Math.max(p.shield, AEGIS_TICKS); p.fz = 0; break;
+    case "veil": p.inv = VEIL_TICKS; break;
+    case "crack": {
+      const i = crackAt(s, p);
+      if (i < 0) return false;
+      if (host) {
+        s.grid[i] = EMPTY;
+        if (s.hidden[i] >= 0) s.items.push({ x: i % W, y: Math.floor(i / W), type: s.hidden[i] });
+      }
+      break;
+    }
+    case "overload":
+      if (!s.bombs.some(own(p))) return false;
+      if (host) for (const b of s.bombs) if (b.owner === p.id) b.t = Math.min(b.t, OVERLOAD_T);
+      break;
+    case "swap": {
+      const q = swapTarget(s, p);
+      if (!q) return false;
+      if (host) {
+        [p.x, q.x] = [q.x, p.x];
+        [p.y, q.y] = [q.y, p.y];
+        p.vx = p.vy = q.vx = q.vy = 0;
+      }
+      break;
+    }
+    case "sweep": {
+      const hit = sweepable(s, p);
+      if (!hit.length) return false;
+      if (host) for (const [b, dx, dy] of hit) fly(s, b, dx, dy, SWEEP_TILES);
+      break;
+    }
+    case "rise":
+      if (s.bombs.some((b) => b.x === tx && b.y === ty)) return false;
+      if (host) s.bombs.push({ x: tx, y: ty, owner: p.id, t: RISE_FUSE, range: p.range + 1, pass: s.players.filter((q) => q.alive && overlaps(q, tx, ty)).map((q) => q.id) });
+      break;
+  }
+  p.cd = a[2];
+  return true;
+}
 
 const floorAt = (s, x, y) => s.floor[y * W + x];
 const inArena = (x, y) => x > 0 && y > 0 && x < W - 1 && y < H - 1;
@@ -420,7 +623,7 @@ function chaos(s) {
     }
   } else if (e.type === "itemrain") {
     for (const [x, y] of e.tiles.filter(free)) {
-      if (!s.items.some((it) => it.x === x && it.y === y)) s.items.push({ x, y, type: pickItem(() => roll(s), s.cfg.powerups) });
+      if (!s.items.some((it) => it.x === x && it.y === y)) s.items.push({ x, y, type: pickItem(() => roll(s), s.cfg.powerups, s.cfg.bombs) });
     }
   } else if (e.type === "quake") {
     for (const [x, y] of e.tiles) {
@@ -506,7 +709,18 @@ function waveTick(s) {
   for (let k = Math.min(1 + sv.wave, SURV_CAP - foes.length, slots.length); k > 0 && spots.length; k--) {
     const [x, y] = spots.splice(Math.floor(roll(s) * spots.length), 1)[0], p = slots.shift();
     Object.assign(p, { x: x * T + T / 2, y: y * T + T / 2, alive: true, dormant: false, bombs: 1, range: 2, speed: 1, face: 2, walk: 0,
-      kick: false, remote: false, pass: false, shield: SURV_SHIELD, curse: null, vx: 0, vy: 0, tp: 0, tpc: 0 });
+      kick: false, remote: false, pass: false, shield: SURV_SHIELD, curse: null, vx: 0, vy: 0, tp: 0, tpc: 0 },
+      s.cfg.bombs && EXTRA_BOMBS, s.cfg.abilities && EXTRA_ABIL);
+  }
+}
+
+// Host-only: mines are armed from the start and go off MINE_DELAY ticks after an enemy comes within one tile; thrown bombs finish their arc.
+function minesTick(s) {
+  for (const b of s.bombs) {
+    if (b.fa > 0) b.fa--;
+    if (b.ty !== B_MINE || b.t <= MINE_DELAY) continue;
+    const tm = teamOf(s, b.owner);
+    if (s.players.some((q) => q.alive && !q.dormant && teamOf(s, q.id) !== tm && Math.abs(tileOf(q.x) - b.x) + Math.abs(tileOf(q.y) - b.y) <= 1)) b.t = MINE_DELAY;
   }
 }
 
@@ -544,15 +758,18 @@ export function step(s, inputs) {
     const inp = inputs[p.id] || {};
     movePlayer(s, p, inp.dx || 0, inp.dy || 0);
     if (s.floor) teleport(s, p);
-    if (p.kick && (inp.dx || inp.dy)) {
+    if (p.kick && !p.fz && (inp.dx || inp.dy)) {
       const sign = curseIs(p, "reverse") ? -1 : 1;
       kick(s, p, inp.dx ? sign * inp.dx : 0, inp.dx ? 0 : sign * inp.dy);
     }
     const tx = tileOf(p.x), ty = tileOf(p.y);
     if (inp.bomb) {
       inp.bomb = false;
-      if (!placeBomb(s, p) && p.remote) detonate(s, p);
+      const l = (p.gl || p.pn) && lift(s, p);
+      if (l) fly(s, l.b, l.dx, l.dy, l.n);
+      else if (!placeBomb(s, p) && p.remote) detonate(s, p);
     }
+    if (inp.act && p.ab) { inp.act = false; useAbility(s, p, true); }
     if (curseIs(p, "auto") && s.tick % AUTO_BOMB_EVERY === 0) placeBomb(s, p);
     const it = s.items.findIndex((i) => i.x === tx && i.y === ty);
     if (it >= 0) pickup(s, p, s.items.splice(it, 1)[0].type);
@@ -562,6 +779,7 @@ export function step(s, inputs) {
 
   for (const b of s.bombs) if (b.dx || b.dy) slide(s, b);
   if (s.floor) carry(s);
+  if (s.cfg.bombs || s.cfg.abilities) minesTick(s);
   for (const b of s.bombs) {
     b.pass = b.pass.filter((id) => {
       const q = s.players[id];
@@ -577,7 +795,9 @@ export function step(s, inputs) {
   const hurts = (f, p) => f.x === tileOf(p.x) && f.y === tileOf(p.y)
     && (s.cfg.friendlyFire || !s.cfg.teams || f.o === undefined || f.o === p.id || teamOf(s, f.o) !== teamOf(s, p.id));
   for (const p of s.players) {
-    if (p.alive && !p.shield && s.flames.some((f) => hurts(f, p))) die(p);
+    if (!p.alive || p.shield) continue;
+    if (s.flames.some((f) => !f.i && hurts(f, p))) die(p);
+    else if (s.cfg.bombs && s.flames.some((f) => f.i && hurts(f, p))) { p.fz = FREEZE_TICKS; if (p.dash) p.dash = 0; }
   }
   if (s.floor) {
     for (const p of s.players) {

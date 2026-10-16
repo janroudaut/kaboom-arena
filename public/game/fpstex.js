@@ -93,16 +93,25 @@ export function playerTex(suit, dark, back, frame) {
   });
 }
 
-export function bombTex(remote, spark) {
-  return tex(14, 16, [remote ? "#4a0c10" : "#14141c", remote ? "#8a1c22" : "#2a2a38", remote ? "#e86a6a" : "#8a8aa0", "#b5703a", spark ? "#ffd23c" : "#ff7a2a", "#ffffff"], (p) => {
+// kind: 0 normal, 1 cluster (gold studs), 2 mine (flat disc), 3 ice (blue), 4 mini-blast.
+export function bombTex(remote, spark, kind = 0) {
+  const ice = kind === 3;
+  return tex(14, 16, [ice ? "#2a6f9a" : remote ? "#4a0c10" : "#14141c", ice ? "#6cc4f2" : remote ? "#8a1c22" : "#2a2a38", ice ? "#e8f8ff" : remote ? "#e86a6a" : "#8a8aa0", "#b5703a", spark ? "#ffd23c" : "#ff7a2a", "#ffffff", "#ffb02a", "#ff3b30"], (p) => {
+    if (kind === 2) {
+      p.ellipse(7, 12, 6.5, 3.2, 1); p.ellipse(7, 12, 4.5, 2, 2); p.dot(6, 11, 8); p.dot(7, 11, 8);
+      return;
+    }
+    if (kind === 4) { p.disc(7, 11, 3.4, spark ? 5 : 7); p.dot(6, 10, 6); return; }
     p.disc(7, 10, 6.2, 1); p.disc(5.5, 8.5, 4, 2); p.disc(4.5, 7, 1.4, 3);
     p.rect(8, 3, 2, 3, 4); p.rect(8, 0, 3, 3, 5); p.dot(9, 1, 6);
+    if (kind === 1) for (const [x, y] of [[10, 9], [8, 13], [3, 11], [10, 6]]) p.rect(x, y, 2, 2, 7);
+    if (ice) { p.rect(0, 10, 2, 1, 6); p.rect(12, 10, 2, 1, 6); p.rect(6, 15, 2, 1, 6); }
   });
 }
 
-export function flameTex(frame) {
+export function flameTex(frame, ice = false) {
   const ph = frame * 2.1;
-  return tex(16, 24, ["#e8453c", "#ff9a2a", "#ffe066", "#fff8d0"], (p) => {
+  return tex(16, 24, ice ? ["#3a7bd8", "#7ad0ff", "#d6f4ff", "#ffffff"] : ["#e8453c", "#ff9a2a", "#ffe066", "#fff8d0"], (p) => {
     for (let x = 0; x < 16; x++) {
       const env = 1 - ((x - 7.5) / 8.5) ** 2, ht = 7 + 16 * env * Math.abs(Math.sin((x + ph) * 0.62)) ** 0.7;
       const top = 24 - Math.round(ht), mid = Math.abs(x - 7.5);

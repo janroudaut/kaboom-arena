@@ -1,7 +1,7 @@
-import { newGame, step, W, T } from "./sim.js";
+import { newGame, step, W, T, ABILITIES } from "./sim.js";
 import { think } from "./ai.js";
 import { draw, CW, CH } from "./render.js";
-import { createInput, merge, sources, clearBombs, labelOf } from "./input.js";
+import { createInput, merge, sources, clearBombs, labelOf, pads } from "./input.js";
 import { joinRoom, newCode, cid } from "./net.js";
 import { cleanName, displayNames, roomFromSearch, inviteUrl, admit, release } from "./lobby.js";
 import { createInbox, createGuestNet, packSnap, unpackSnap } from "./netcode.js";
@@ -206,6 +206,7 @@ const allInputs = () => (fpsOn() && game ? faceIn(merge(Object.keys(sources)), M
 const input = createInput(
   $("pad"),
   $("bombBtn"),
+  $("actBtn"),
   (name) => (mode === "local-lobby" ? joinLocal(name) : dismissRecap() || (name.startsWith("pad") && storyUi.press())),
   () => {
     for (const [n, src] of Object.entries(sources)) if (n.startsWith("pad") && (src.dx || src.dy)) storyUi.nav(src.dx, src.dy);
@@ -257,7 +258,7 @@ function makeGame(n, story) {
 
 const INTRO = 80;
 const roundBanner = (g) => `ROUND ${g.round} — FIGHT!`;
-const rulesText = (r) => [MODE_INFO[r.mode].name, r.tiles !== "off" && `${r.tiles} floor tiles`, r.chaos && "chaos events"].filter(Boolean).join(" · ");
+const rulesText = (r) => [MODE_INFO[r.mode].name, r.tiles !== "off" && `${r.tiles} floor tiles`, r.chaos && "chaos events", r.bombs && "special bombs", r.abilities && "abilities"].filter(Boolean).join(" · ");
 
 // Non-classic modes announce themselves with a short freeze; the banner reaches guests through the snapshot.
 function modeIntro(g) {
@@ -272,7 +273,10 @@ function startStory(spec) {
   mode = "story";
   clearBombs();
   setSuits([me.color, foe.color]);
-  startMatch(2, spec, [me.name, foe.name]);
+  const extra = {};
+  if (settings.bombs) extra.bombs = true;
+  if (settings.abilities) extra.abilities = [me.ability, foe.ability];
+  startMatch(2, Object.keys(extra).length ? { ...spec, opts: { ...spec.opts, ...extra } } : spec, [me.name, foe.name]);
 }
 
 function startMatch(n, story, storyNames) {
@@ -342,7 +346,7 @@ function tick() {
       if (isBot(p.id)) {
         if ((s.tick + p.id) % THINK_EVERY === 0) botMem[p.id] = think(s, p.id, Math.random, g.story ? g.story.level : settings.bot);
         inputs[p.id] = { ...botMem[p.id] };
-        if (botMem[p.id]) botMem[p.id].bomb = false;
+        if (botMem[p.id]) botMem[p.id].bomb = botMem[p.id].act = false;
       } else inputs[p.id] = inboxes[p.id].next();
     }
     step(s, inputs);
@@ -379,7 +383,7 @@ function sendSnap() {
   room.send({ t: "snap", g: { s: packSnap(s, withGrid), a, scores, banner, r: !!game.rematch, w: settings.rounds } });
 }
 
-const pushLobby = () => room.send({ t: "lobby", slots, names, rules: { mode: settings.mode, tiles: settings.tiles, chaos: settings.chaos } });
+const pushLobby = () => room.send({ t: "lobby", slots, names, rules: { mode: settings.mode, tiles: settings.tiles, chaos: settings.chaos, bombs: settings.bombs, abilities: settings.abilities } });
 
 function renderLobby() {
   const list = displayNames(slots.length, slots.map(Boolean), names);
@@ -700,6 +704,18 @@ function feelStep(g) {
   syncRecap(g);
 }
 
+// Second touch button and the pad's X key exist only in games with abilities; the button fills while the cooldown runs.
+let actFill = -1;
+function syncAct() {
+  const s = game?.s, on = !!s?.cfg?.abilities, btn = $("actBtn");
+  pads.act = on;
+  if (btn.hidden === on) btn.hidden = !on;
+  if (!on) return;
+  const p = s.players[mode === "local" ? Math.max(0, humans.indexOf("touch")) : Math.max(0, game.me)];
+  const fill = p?.ab ? Math.round((1 - (p.cd | 0) / ABILITIES[p.ab][2]) * 20) * 5 : 100;
+  if (fill !== actFill) { actFill = fill; btn.style.setProperty("--f", `${fill}%`); btn.classList.toggle("rdy", fill === 100); }
+}
+
 let last = performance.now(), acc = 0, lastErr = "";
 function loop(now) {
   const raw = Math.min(now - last, 100);
@@ -718,6 +734,7 @@ function loop(now) {
   if (lostAt && performance.now() - lostAt > RECONNECT_MS) toMenu("Connection lost.");
   if (mode === "guest" && game && gnet) game.s = gnet.frame(performance.now());
   if (game && !paused) feelStep(game);
+  syncAct();
   syncRematch();
   if (game && !paused) rumble(game);
   if (game && !paused) {

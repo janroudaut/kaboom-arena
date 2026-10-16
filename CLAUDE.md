@@ -4,7 +4,7 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 
 ## Run and test
 - `bin/rails s -b 0.0.0.0` -> http://localhost:3117 (on a phone: use the LAN IP). Solo/local only need a static server on `public/`.
-- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs`.
+- Tests (no dependencies): `cd public/game && node --test sim.test.mjs ai.test.mjs netcode.test.mjs modes.test.mjs lobby.test.mjs settings.test.mjs haptics.test.mjs campaign.test.mjs fx.test.mjs director.test.mjs extras.test.mjs raycast.test.mjs fpsinput.test.mjs nav.test.mjs sound.test.mjs music.test.mjs dlss6.test.mjs determinism.test.mjs specials.test.mjs`.
 - UI and code are in English, no i18n.
 
 ## Architecture
@@ -74,6 +74,14 @@ Vanilla JS + Canvas in `public/game/` (no build step). A Rails 8 API app only re
 - Controls (first human only; in local games P2 keeps classic controls): left/right turn 90 degrees (repeat after 20 ticks then every 12), up/down walk along the facing axis, strafe on Comma/Period or gamepad LB/RB, M toggles the minimap (persisted as `fpsmap`). The sim input stays axis-aligned `{dx, dy, bomb}`; `fps.map` must be called once per sim step.
 - Perf: internal height 200 (150 on mobile, drawn at ~30 fps), no per-frame allocation in the 3D pass. In V8, writing doubles into object fields, passing doubles to non-inlined hot functions or using a literal `Infinity` allocates per call: keep ray state in typed arrays. `rf.ms` is an EMA of draw time for debugging.
 - Not rendered: floor-tile art, hill/potato/chaos visuals (ignored safely). Parody note: a nod to the boomer shooter genre, original art, not affiliated with id Software.
+
+## Special bombs, glove/punch, abilities (opt-in)
+- `newGame` opts `bombs: true` and `abilities: true | [ability keys by player]` set cfg flags and extra fields only when on. Never add a field, `roll()` or `rand()` to the classic path: `determinism.test.mjs` holds 20 golden hashes captured before the feature and must never be regenerated.
+- Items 8..12 (glove, punch, cluster, mine, frost); `b.ty` 1 cluster, 2 mine, 3 ice, 4 mini-blast. Player fields `sp/spn` (held type and count), `fz` (freeze), `gl/pn`; with abilities `ab/cd/inv/dash`; bombs `ty`, `fx/fy/fa` (throw arc). Bomb key priority: glove (standing on a bomb), punch (bomb ahead), place, remote detonate; `canLift` is shared with the guest.
+- Cooldown, vanish, freeze and dash timers run inside `movePlayer` so guest prediction stays exact; `useAbility(s, p, host)` only touches `p` on the guest, effects on bricks, bombs or other players are host-only (swap, sweep, crack, overload, rise, throw, punch, mine triggers, freeze application). `ABILITIES` holds `[key, name, cooldown, description]` (the help list is generated from it); story fighters have `ROSTER[].ability`, colour slots get Dash, Vanish, Overload, Blink; story only passes the options when the settings are on.
+- Mines are non-solid, never use bomb slots and are hidden unless `mineSeen` (owner and team; the snapshot still carries them: same class as the host-can-cheat limit). Ice flames freeze instead of killing (shield resists, a normal blast still kills a frozen player).
+- Wire: input code +18 = ability key (`createInbox` accepts < 36), ice flames pack as `[x, y, t, 1]`. Keys: kb1 E/Left Shift, kb2 Right Shift/Numpad0/0, pad X (button 2) only when `pads.act` is set (otherwise any button bombs), touch `#actBtn`. First person uses the last walked direction.
+- Known pre-existing stalls (not caused by this feature): a teleporter pad can land a bot in a soft-wall pocket; bot-only survival may never end. Bot ability use lives in `ai.js` (`escapeAct`, mine planting).
 
 ## Bots (`ai.js`)
 - `dangerMap` gives the time before impact per tile (chain reactions included); escapes are timed (`ticksPerTile`, `MARGIN`) and a bomb is only placed if a strict escape exists. Bots anticipate sudden death (`doomed` in `sim.js`).

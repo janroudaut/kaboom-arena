@@ -14,6 +14,8 @@ export const FIELDS = [
   { key: "theme", label: "Theme", opts: [["auto", "Auto"], ...Object.entries(THEMES).map(([k, t]) => [k, t.name])] },
   { key: "tiles", label: "Floor tiles", opts: [["off", "Off"], ["few", "Few"], ["many", "Many"]] },
   { key: "chaos", label: "Chaos events", opts: ON_OFF.slice().reverse() },
+  { key: "bombs", label: "Special bombs (cluster, mine, ice, glove, punch)", opts: ON_OFF.slice().reverse() },
+  { key: "abilities", label: "Fighter abilities (second button)", opts: ON_OFF.slice().reverse() },
   { key: "powerups", label: "Power-ups", opts: ON_OFF },
   { key: "sudden", label: "Sudden death", opts: ON_OFF },
   { key: "teams", label: "Teams (4 players)", opts: [[false, "Off"], [true, "2 vs 2"]] },
@@ -33,7 +35,7 @@ export const FIELDS = [
   { key: "offline", label: "Keep the whole game offline", opts: ON_OFF.slice().reverse(), store: true },
 ];
 
-export const DEFAULTS = { bot: "normal", mode: "classic", tiles: "off", chaos: false, rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal", offline: false, sfx: true, music: "silence", volume: "normal", voice: false, announcer: true, slowmo: true, recap: true };
+export const DEFAULTS = { bot: "normal", mode: "classic", tiles: "off", chaos: false, bombs: false, abilities: false, rounds: 2, layout: "classic", theme: "grass", powerups: true, sudden: true, teams: false, ff: true, cb: false, reduce: "auto", vibrate: true, rumble: true, intensity: "normal", offline: false, sfx: true, music: "silence", volume: "normal", voice: false, announcer: true, slowmo: true, recap: true };
 
 export const reduced = (set, system) => (set.reduce === "auto" ? !!system : set.reduce);
 
@@ -63,6 +65,8 @@ export function roundOpts(set, n, rand = Math.random) {
       friendlyFire: set.mode === "survival" ? undefined : set.ff,
       tiles: set.tiles,
       chaos: set.chaos,
+      bombs: set.bombs,
+      abilities: set.abilities,
       mode: set.mode,
     },
     theme: set.theme === "auto" ? pick(Object.keys(THEMES)) : set.theme,

@@ -1,8 +1,8 @@
 // "Bomber Shooter": first-person raycast renderer. Same game state as the other renderers (a pure view).
 // Low-res ImageData (reused), CSS pixelated upscale, no per-frame allocation in the 3D pass, nothing runs unless draw() is called.
-import { W as GW, H as GH, T, SUDDEN } from "./sim.js";
+import { W as GW, H as GH, T, SUDDEN, B_MINE, FLY_TICKS } from "./sim.js";
 import { placeBubble } from "./director.js";
-import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view } from "./look.js";
+import { themeOf, teamInfo, teamsOf, curseText, hudEntries, bombPos, palette, view, mineSeen, abilityInfo, heldBombs } from "./look.js";
 import { ICONS } from "./render.js";
 import { cast, newRay, OX, OY, DX, DY, T as RT, SIDE, TILE, U, texU, planeOf, project, angDiff } from "./raycast.js";
 import { fps } from "./fpsinput.js";
@@ -30,7 +30,9 @@ export function createRendererFps(canvas) {
   const ringCache = new Map(), portraits = new Map(), faceCache = new Map(), digits = [0, 1, 2, 3].map(X.digitTex);
   const items = ICONS.map(X.fromCanvas);
   const shadow = X.shadowTex(), bigBomb = X.toCanvas(X.bigBombTex());
-  const flames = [0, 1, 2].map(X.flameTex), bombs = [[0, 0], [0, 1], [1, 0], [1, 1]].map(([r, s]) => X.bombTex(!!r, !!s));
+  const flames = [0, 1, 2].map((f) => X.flameTex(f)), iceFlames = [0, 1, 2].map((f) => X.flameTex(f, true));
+  const bombs = [0, 1, 2, 3, 4].map((k) => [[0, 0], [0, 1], [1, 0], [1, 1]].map(([r, s]) => X.bombTex(!!r, !!s, k)));
+  const frost = X.auraTex(X.rgba("#9ee0ff", 120), X.rgba("#ffffff", 220));
   const shield = [X.auraTex(X.rgba("#5adcff", 72), X.rgba("#c8f8ff", 200)), X.auraTex(X.rgba("#5adcff", 26), X.rgba("#c8f8ff", 110))];
   const curse = X.auraTex(X.rgba("#be3cff", 80), X.rgba("#dc8cff", 180));
 
@@ -202,14 +204,20 @@ export function createRendererFps(canvas) {
       if (icon) add(icon, it.x + 0.5, it.y + 0.5, 0.42, 0.42, 0.06 + (walk ? 0.06 + 0.05 * Math.sin(clock / 160 + it.x * 7) : 0.08), 0, 0);
     }
     for (let i = 0; i < s.bombs.length; i++) {
-      const b = s.bombs[i], pos = bombPos(b, s.grid), rem = s.players[b.owner]?.remote ? 2 : 0;
+      const b = s.bombs[i], rem = s.players[b.owner]?.remote ? 2 : 0, ty = b.ty | 0;
+      if (ty === B_MINE && !mineSeen(s, b, meId)) continue;
+      let px = b.x, py = b.y, lift = 0;
+      if (b.fa > 0) {
+        const t = 1 - b.fa / FLY_TICKS;
+        px = b.fx + (b.x - b.fx) * t; py = b.fy + (b.y - b.fy) * t; lift = Math.sin(t * Math.PI) * 0.9;
+      } else if (b.dx || b.dy) { const pos = bombPos(b, s.grid); px = pos[0]; py = pos[1]; }
       const k = still ? 1 : 1 + Math.sin(b.t / 5) * (b.t < 40 ? 0.1 : 0.05);
-      add(bombs[rem + ((b.t & 8) >> 3)], pos[0] + 0.5, pos[1] + 0.5, 0.5 * k, 0.57 * k, 0, 0, 0);
-      add(shadow, pos[0] + 0.5, pos[1] + 0.5, 0.6, 0.12, 0, 0.03, 0);
+      add(bombs[ty][rem + ((b.t & 8) >> 3)], px + 0.5, py + 0.5, 0.5 * k, 0.57 * k, lift, 0, 0);
+      add(shadow, px + 0.5, py + 0.5, 0.6, 0.12, 0, 0.03, 0);
     }
     for (let i = 0; i < s.flames.length; i++) {
       const f = s.flames[i], k = Math.min(1, f.t / 8);
-      add(flames[((clock / 70) | 0) % 3], f.x + 0.5, f.y + 0.5, 0.95, 0.95 * (0.35 + 0.65 * k), 0, 0, 1);
+      add((f.i ? iceFlames : flames)[((clock / 70) | 0) % 3], f.x + 0.5, f.y + 0.5, 0.95, 0.95 * (0.35 + 0.65 * k), 0, 0, 1);
     }
     const dx = dirX, dy = dirY;
     for (let i = 0; i < s.players.length; i++) {
@@ -217,7 +225,9 @@ export function createRendererFps(canvas) {
       if (i === meId || !p.alive || p.dormant) continue;
       const x = p.x / T, y = p.y / T, id = i & 3;
       const f = FACING[p.face & 3], back = f[0] * dx + f[1] * dy > 0.3 ? 2 : 0;
+      if (p.inv > 0 && !(tm && tm[i] === tm[meId])) continue;
       add(P_.body[id][back + (p.walk % 14 < 7 ? 0 : 1)], x, y, 0.57, 0.79, 0, 0, 0);
+      if (p.fz > 0) add(frost, x, y, 0.85, 1.0, -0.02, -0.01, 1);
       add(shadow, x, y, 0.7, 0.14, 0, 0.03, 0);
       if (tm) {
         const col = teamInfo(tm[i]).col;
@@ -285,6 +295,7 @@ export function createRendererFps(canvas) {
     for (let i = 0; i < s.items.length; i++) c.fillRect(x0 + s.items[i].x * S + 1, y0 + s.items[i].y * S + 1, S - 2, S - 2);
     for (let i = 0; i < s.bombs.length; i++) {
       const b = s.bombs[i], bp = bombPos(b, s.grid);
+      if (b.ty === B_MINE && !mineSeen(s, b, me.id)) continue;
       c.fillStyle = "#000"; c.fillRect(x0 + bp[0] * S, y0 + bp[1] * S, S, S);
       c.fillStyle = "#fff"; c.fillRect(x0 + bp[0] * S + 1, y0 + bp[1] * S + 1, S - 2, S - 2);
     }
@@ -338,7 +349,12 @@ export function createRendererFps(canvas) {
     if (p.kick) { c.drawImage(ICONS[3], x, y - 1); x += 16; }
     if (p.remote) { c.drawImage(ICONS[4], x, y - 1); x += 16; }
     if (p.pass) { c.drawImage(ICONS[5], x, y - 1); x += 16; }
-    if (p.shield > 0) { c.drawImage(ICONS[6], x, y - 1); txt(num(Math.ceil(p.shield / 60)), x + 16, y + 10, "#8fe8ff"); }
+    if (p.shield > 0) { c.drawImage(ICONS[6], x, y - 1); txt(num(Math.ceil(p.shield / 60)), x + 16, y + 10, "#8fe8ff"); x += 30; }
+    if (p.gl) { c.drawImage(ICONS[8], x, y - 1); x += 16; }
+    if (p.pn) { c.drawImage(ICONS[9], x, y - 1); x += 16; }
+    const h = heldBombs(p), a = abilityInfo(p);
+    if (h) { c.drawImage(ICONS[9 + h.ty], x, y - 1); txt(`x${h.n}`, x + 16, y + 10, "#fff"); x += 30; }
+    if (a) txt(`${a.name} ${a.ready ? "READY" : `${a.secs}s`}`, cw - 4, y + 10, a.ready ? "#ffd23c" : "#fff", "right");
   }
 
   function stat(x, y, ic, t) {

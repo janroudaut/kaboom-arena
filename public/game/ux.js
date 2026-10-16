@@ -1,21 +1,35 @@
 import { ICONS } from "./render.js";
+import { ABILITIES, SLOT_ABILITY } from "./sim.js";
+import { ROSTER } from "./campaign.js";
 
 const $ = (id) => document.getElementById(id);
 const ITEMS = [
   ["Bomb", "+1 bomb at once"], ["Range", "longer blasts"], ["Speed", "run faster"], ["Kick", "walk into a bomb to push it"],
   ["Remote", "press bomb again to detonate"], ["Bomb pass", "walk through bombs"], ["Shield", "survive blasts for a few seconds"], ["Skull", "curse: a random handicap"],
+  ["Glove", "bomb key on a bomb throws it 3 tiles"], ["Punch", "bomb key facing a bomb knocks it 2 tiles"],
+  ["Cluster", "next bombs also drop a ring of mini-blasts"], ["Mine", "next bombs are hidden traps for rivals"], ["Frost", "next bombs freeze instead of kill"],
 ];
 const SEEN = "helpSeen";
 
 export function initHelp(openers, layer = {}) {
   const dlg = $("help"), done = $("helpDone");
-  $("helpItems").replaceChildren(...ITEMS.map(([name, text], i) => {
+  const item = ([name, text], i) => {
     const cv = Object.assign(document.createElement("canvas"), { width: 28, height: 28 });
     cv.getContext("2d").drawImage(ICONS[i], 0, 0, 28, 28);
     cv.setAttribute("aria-hidden", "true");
     const li = document.createElement("li");
     li.append(cv, Object.assign(document.createElement("span"), { innerHTML: `<b>${name}</b> ${text}` }));
     return li;
+  };
+  $("helpItems").replaceChildren(...ITEMS.slice(0, 8).map(item));
+  $("helpItemsX").replaceChildren(...ITEMS.slice(8).map((e, i) => item(e, i + 8)));
+  const COLOURS = ["White", "Black", "Red", "Blue"];
+  $("helpAbil").replaceChildren(...ABILITIES.flatMap((a, i) => {
+    if (!a) return [];
+    const who = [...SLOT_ABILITY.flatMap((ab, k) => (ab === i ? [COLOURS[k]] : [])), ...ROSTER.filter((f) => f.ability === a[0]).map((f) => f.name)];
+    const li = document.createElement("li");
+    li.append(Object.assign(document.createElement("b"), { textContent: a[1] }), `${a[3]} (${who.join(", ")})`);
+    return [li];
   }));
   let from = null;
   const open = () => {

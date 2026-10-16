@@ -1,4 +1,4 @@
-import { W, H, T, blast } from "./sim.js";
+import { W, H, T, blast, B_MINE, B_MINI } from "./sim.js";
 
 // Pure game-feel layer: diffs successive states (solo, host or guest alike) into events and per-player stats,
 // then turns them into announcer banners, hit-stop/slow-mo requests, camera punches and story speech bubbles.
@@ -8,11 +8,11 @@ const N = W * H, MAXB = 32, SHIELD = 6, SKULL = 7;
 const zero = () => new Array(16).fill(0);
 export const newStats = () => ({ bombs: zero(), kills: zero(), own: zero(), items: zero(), walls: zero() });
 
-// on(kind, a, b, c): "reset"; "bomb" (owner); "blast" (bombs, walls); "die" (victim, killer, -); "pick" (id, type);
+// on(kind, a, b, c): "reset"; "bomb" (owner); "blast" (bombs, walls); "die" (victim, killer, why: bit 1 = a mine blast, bit 2 = victim was frozen); "pick" (id, type);
 // "close" (id); "sudden"; "decide" (winner); "done". killer === victim means own bomb, -1 unknown (sudden death crush).
 export function createTracker() {
   const grid = new Uint8Array(N), occ = new Uint8Array(N), item = new Int8Array(N), fl = new Uint8Array(N), nf = new Uint8Array(N), own = new Uint16Array(N);
-  const pb = new Int16Array(MAXB * 5), alive = [true, true, true, true];
+  const pb = new Int16Array(MAXB * 5), alive = [true, true, true, true], mined = new Uint8Array(N), frozen = new Uint8Array(16);
   let npb = 0, tick = -1, n = 0, end = -1, done = false, sd = 0, round = newStats(), total = newStats(), counted = false;
 
   const clear = (st) => { for (const k in st) st[k].fill(0); };
@@ -26,7 +26,7 @@ export function createTracker() {
     if (fresh && tick >= 0) { clear(round); counted = false; on("reset"); }
     nf.fill(0);
     for (const f of s.flames) nf[f.y * W + f.x]++;
-    for (let i = 0; i < N; i++) if (!nf[i]) own[i] = 0;
+    for (let i = 0; i < N; i++) if (!nf[i]) own[i] = mined[i] = 0;
     let bombsOut = 0, wallsOut = 0;
 
     if (!fresh) {
@@ -41,6 +41,7 @@ export function createTracker() {
           const i = cy * W + cx;
           if (grid[i] === 2 && s.grid[i] === 0 && !own[i]) { if (o >= 0) round.walls[o]++; wallsOut++; }
           if (o >= 0) own[i] |= 1 << o;
+          if (pb[k * 5 + 4] === B_MINE) mined[i] = 1;
         }
       }
       if (bombsOut) on("blast", bombsOut, wallsOut);
@@ -52,12 +53,14 @@ export function createTracker() {
           const killer = !m ? -1 : m === mine ? id : lowest(m & ~mine);
           if (killer === id) round.own[id]++;
           else if (killer >= 0) round.kills[killer]++;
-          on("die", id, killer);
+          const why = (mined[Math.floor(p.y / T) * W + Math.floor(p.x / T)] ? 1 : 0) | (frozen[id] ? 2 : 0);
+          if (why) on("die", id, killer, why);
+          else on("die", id, killer);
         }
       }
 
       for (const b of s.bombs) {
-        if (b.owner >= 0 && !(b.dx || b.dy) && !occ[b.y * W + b.x]) { round.bombs[b.owner]++; on("bomb", b.owner); }
+        if (b.owner >= 0 && !(b.dx || b.dy) && !occ[b.y * W + b.x] && b.ty !== B_MINI && !(b.fa > 0)) { round.bombs[b.owner]++; on("bomb", b.owner); }
       }
 
       for (let i = 0; i < N; i++) {
@@ -93,10 +96,10 @@ export function createTracker() {
     npb = 0;
     for (const b of s.bombs) {
       occ[b.y * W + b.x] = 1;
-      if (npb < MAXB) { pb[npb * 5] = b.x; pb[npb * 5 + 1] = b.y; pb[npb * 5 + 2] = b.owner; pb[npb * 5 + 3] = b.range; npb++; }
+      if (npb < MAXB) { pb[npb * 5] = b.x; pb[npb * 5 + 1] = b.y; pb[npb * 5 + 2] = b.owner; pb[npb * 5 + 3] = b.range; pb[npb * 5 + 4] = b.ty | 0; npb++; }
     }
     for (const it of s.items) item[it.y * W + it.x] = it.type + 1;
-    for (let id = 0; id < np; id++) alive[id] = s.players[id].alive;
+    for (let id = 0; id < np; id++) { alive[id] = s.players[id].alive; frozen[id & 15] = s.players[id].fz > 0 ? 1 : 0; }
   }
 
   return {
@@ -222,7 +225,7 @@ export function createDirector() {
   };
   const call = (key, text, prio, cd = 0) => ctx.announce && ann.push(key, text, { prio, cd, still: ctx.still }, now);
 
-  function on(kind, a, b) {
+  function on(kind, a, b, c) {
     if (kind === "reset") {
       ann.clear();
       d.hitUntil = d.slowUntil = 0;
@@ -238,6 +241,8 @@ export function createDirector() {
       if (ctx.timeFx && (ctx.human(a) || (b >= 0 && b !== a && ctx.human(b)))) d.hitUntil = now + HIT_MS;
       if (now - lastDie < 1000) call("double", "DOUBLE KILL!", 3);
       else if (a === b) call("darwin", "DARWIN AWARD", 2);
+      else if (b >= 0 && c & 1) call("mine", "BOOBY TRAPPED!", 2);
+      else if (b >= 0 && c & 2) call("cold", "COLD BLOODED!", 2);
       lastDie = now;
       say(a, "die");
     } else if (kind === "pick") {

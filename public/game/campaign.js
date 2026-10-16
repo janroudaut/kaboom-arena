@@ -1,15 +1,16 @@
 // Story mode logic: roster, family graph, ladders, difficulty and saved progress. Pure; text lives in story.js.
+// `ability` is the fighter's signature move (key of ABILITIES in sim.js), used when the "Fighter abilities" setting is on.
 
 export const ROSTER = [
-  { id: "ignatius", name: "Ignatius", color: "#3c7be8", stage: { name: "Old Man's Backyard", layout: "pillars", theme: "grass" } },
-  { id: "dynamita", name: "Dynamita", color: "#ff8a1a", stage: { name: "Fireworks Factory", layout: "cross", theme: "lava" } },
-  { id: "baron", name: "Baron", color: "#8a3cd6", stage: { name: "Von Boom Hedge Maze", layout: "maze", theme: "night" } },
-  { id: "mama", name: "Mama", color: "#ff9ec7", stage: { name: "Mama's Kitchen", layout: "open", theme: "snow" } },
-  { id: "dolores", name: "Dolores", color: "#e8203c", stage: { name: "Bombshell Casino", layout: "cross", theme: "desert" } },
-  { id: "tony", name: "Tony", color: "#8be04a", stage: { name: "Tick-Tock Parking Lot", layout: "classic", theme: "night" } },
-  { id: "fizzle", name: "Fizzle", color: "#7d8fa8", stage: { name: "Draughty Castle", layout: "pillars", theme: "snow" } },
-  { id: "kapow", name: "Kapow", color: "#19d3d3", stage: { name: "Skate Park", layout: "open", theme: "desert" } },
-  { id: "gunpowder", name: "Gunpowder", color: "#d8d2b0", stage: { name: "The Family Crypt", layout: "maze", theme: "lava" } },
+  { id: "ignatius", name: "Ignatius", color: "#3c7be8", stage: { name: "Old Man's Backyard", layout: "pillars", theme: "grass" }, ability: "crack" },
+  { id: "dynamita", name: "Dynamita", color: "#ff8a1a", stage: { name: "Fireworks Factory", layout: "cross", theme: "lava" }, ability: "overload" },
+  { id: "baron", name: "Baron", color: "#8a3cd6", stage: { name: "Von Boom Hedge Maze", layout: "maze", theme: "night" }, ability: "veil" },
+  { id: "mama", name: "Mama", color: "#ff9ec7", stage: { name: "Mama's Kitchen", layout: "open", theme: "snow" }, ability: "sweep" },
+  { id: "dolores", name: "Dolores", color: "#e8203c", stage: { name: "Bombshell Casino", layout: "cross", theme: "desert" }, ability: "swap" },
+  { id: "tony", name: "Tony", color: "#8be04a", stage: { name: "Tick-Tock Parking Lot", layout: "classic", theme: "night" }, ability: "blink" },
+  { id: "fizzle", name: "Fizzle", color: "#7d8fa8", stage: { name: "Draughty Castle", layout: "pillars", theme: "snow" }, ability: "aegis" },
+  { id: "kapow", name: "Kapow", color: "#19d3d3", stage: { name: "Skate Park", layout: "open", theme: "desert" }, ability: "dash" },
+  { id: "gunpowder", name: "Gunpowder", color: "#d8d2b0", stage: { name: "The Family Crypt", layout: "maze", theme: "lava" }, ability: "rise" },
 ];
 export const BY_ID = Object.fromEntries(ROSTER.map((f) => [f.id, f]));
 
